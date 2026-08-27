@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "roundready"
+version = "0.1.0"
+description = "Production-oriented foundation for the RoundReady mock interview platform"
+requires-python = ">=3.12"
+dependencies = [
+  "aio-pika>=9.4,<10",
+  "alembic>=1.13,<2",
+  "argon2-cffi>=23.1,<26",
+  "asyncpg>=0.29,<1",
+  "fastapi>=0.115,<1",
+  "email-validator>=2.2,<3",
+  "httpx>=0.27,<1",
+  "opentelemetry-api>=1.27,<2",
+  "opentelemetry-instrumentation-fastapi>=0.48b0,<1",
+  "opentelemetry-sdk>=1.27,<2",
+  "pydantic-settings>=2.5,<3",
+  "pyjwt[crypto]>=2.9,<3",
+  "psycopg[binary]>=3.2,<4",
+  "redis>=5,<6",
+  "sqlalchemy[asyncio]>=2.0.35,<3",
+  "structlog>=24.4,<26",
+  "uvicorn[standard]>=0.30,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.11,<2",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<1",
+  "ruff>=0.6,<1",
+  "testcontainers[postgres]>=4.8,<5",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["libs/roundready_common"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["services"]
+pythonpath = [".", "libs"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+exclude = [".venv", "**/alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "libs"
+exclude = "services/.*/alembic/versions/"
+
+[[tool.mypy.overrides]]
+module = ["opentelemetry.instrumentation.fastapi"]
+ignore_missing_imports = true
