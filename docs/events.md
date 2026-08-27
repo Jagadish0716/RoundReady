@@ -13,3 +13,6 @@
 ```
 
 Times are UTC ISO 8601 values. IDs are UUIDs. The routing key equals `event_type`.
+
+Notification-producing payloads include `recipient_email` and/or `recipient_whatsapp`. These
+delivery addresses are consumed only by notification-service and must never be written to logs.

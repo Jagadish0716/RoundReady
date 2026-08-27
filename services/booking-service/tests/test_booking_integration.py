@@ -8,6 +8,8 @@ from app.infrastructure.holds import RedisHoldStore
 from conftest import headers
 from fastapi.testclient import TestClient
 from redis.asyncio import Redis
+from redis.exceptions import ConnectionError as RedisConnectionError
+from roundready_common.errors import ServiceError
 
 
 def generate(
@@ -55,6 +57,31 @@ def test_simultaneous_holds_allow_one_winner(client: TestClient) -> None:
             )
         )
     assert sorted(results) == [200, 409]
+
+
+def test_two_candidates_cannot_concurrently_book_same_slot(client: TestClient) -> None:
+    slot = generate(client, headers("admin"), uuid4(), datetime(2030, 1, 1, 11, tzinfo=UTC))
+    slot_id = str(slot["id"])
+
+    def attempt(candidate: dict[str, str], key: str) -> int:
+        held = client.post(f"/v1/slots/{slot_id}/hold", headers=candidate)
+        if held.status_code != 200:
+            return held.status_code
+        return client.post(
+            "/v1/bookings",
+            headers={**candidate, "Idempotency-Key": key},
+            json={"slot_id": slot_id, "hold_token": held.json()["hold_token"]},
+        ).status_code
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(attempt, headers(), "concurrent-candidate-one"),
+            pool.submit(attempt, headers(), "concurrent-candidate-two"),
+        ]
+        results = [future.result() for future in futures]
+
+    assert results.count(201) == 1
+    assert results.count(409) == 1
 
 
 def test_idempotent_booking_creation(client: TestClient) -> None:
@@ -129,6 +156,24 @@ def test_redis_lock_expires(infrastructure: tuple[str, str]) -> None:
         await asyncio.sleep(1.1)
         assert await store.acquire("expiry-test", "token-two")
         await redis.aclose()
+
+    asyncio.run(scenario())
+
+
+def test_redis_failure_maps_to_service_unavailable() -> None:
+    class UnavailableRedis:
+        async def set(self, *_args: object, **_kwargs: object) -> None:
+            raise RedisConnectionError("unavailable")
+
+    async def scenario() -> None:
+        store = RedisHoldStore(cast(Any, UnavailableRedis()), 300)
+        try:
+            await store.acquire("slot", "token")
+        except ServiceError as exc:
+            assert exc.status_code == 503
+            assert exc.code == "hold_store_unavailable"
+        else:
+            raise AssertionError("Redis failure was not mapped")
 
     asyncio.run(scenario())
 

@@ -70,9 +70,9 @@ call sites. Payment, booking, and notification commands require idempotency keys
 ## Local development
 
 Copy `.env.example` to `.env`, install Python 3.12 and the `dev` extra, then start
-`infrastructure/docker-compose.yml`. Compose provides PostgreSQL 16 with one logical database
-per stateful service, Redis 7, RabbitMQ 3, and all eight applications. Run migrations from
-inside each service before using business endpoints. `scripts/check.sh` formats-checks,
+`infrastructure/docker-compose.yml`. Compose currently provides PostgreSQL 16 with one logical
+database per stateful service, Redis 7, and RabbitMQ 3; applications are run separately. Run
+migrations for each service before using business endpoints. `scripts/check.sh` formats-checks,
 lints, strictly type-checks, and tests every service in isolation, avoiding import collisions
 between deliberately independent `app` packages.
 

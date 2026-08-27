@@ -2,6 +2,7 @@ from typing import Any, cast
 from uuid import uuid4
 
 import psycopg
+import pytest
 from app.domain.security import hash_password
 from fastapi.testclient import TestClient
 
@@ -18,6 +19,32 @@ def test_health_and_application_startup(client: TestClient) -> None:
     response = client.get("/health", headers={"X-Correlation-ID": "auth-integration-test"})
     assert response.status_code == 200
     assert response.headers["X-Correlation-ID"] == "auth-integration-test"
+
+
+def test_readiness_maps_low_level_database_failure(client: TestClient) -> None:
+    from app.infrastructure.database import get_db_session
+    from fastapi import FastAPI
+
+    class UnavailableSession:
+        async def execute(self, _statement: object) -> None:
+            raise OSError("database unavailable")
+
+    app = cast(FastAPI, client.app)
+    app.dependency_overrides[get_db_session] = lambda: UnavailableSession()
+    try:
+        response = client.get("/ready", headers={"X-Correlation-ID": "readiness-failure"})
+    finally:
+        app.dependency_overrides.pop(get_db_session, None)
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "error": {
+            "code": "service_not_ready",
+            "message": "Database is unavailable",
+            "details": None,
+        },
+        "correlation_id": "readiness-failure",
+    }
 
 
 def test_registration_and_user_registered_event(
@@ -188,3 +215,31 @@ def test_persistence_across_application_restart(client: TestClient, register_use
     with TestClient(create_app()) as restarted_client:
         second_login = login(restarted_client, user)
     assert second_login["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_rabbitmq_failure_keeps_outbox_event_for_retry(
+    client: TestClient, register_user: Any
+) -> None:
+    from app.application.outbox import publish_pending_events
+    from app.domain.models import OutboxEvent
+    from app.infrastructure.database import session_factory
+    from sqlalchemy import select
+
+    class UnavailablePublisher:
+        async def publish(self, _event: object) -> None:
+            raise ConnectionError("RabbitMQ unavailable")
+
+    register_user()
+    async with session_factory() as session:
+        published = await publish_pending_events(session, cast(Any, UnavailablePublisher()))
+        failed = await session.scalar(
+            select(OutboxEvent)
+            .where(OutboxEvent.published_at.is_(None), OutboxEvent.last_error.is_not(None))
+            .order_by(OutboxEvent.occurred_at)
+        )
+
+    assert published == 0
+    assert failed is not None
+    assert failed.publish_attempts >= 1
+    assert failed.last_error == "ConnectionError"

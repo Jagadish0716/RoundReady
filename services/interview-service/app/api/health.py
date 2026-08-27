@@ -4,7 +4,6 @@ from app.infrastructure.database import get_db_session
 from fastapi import APIRouter, Depends
 from roundready_common.errors import ServiceError
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(tags=["platform"])
@@ -21,7 +20,7 @@ async def ready(
 ) -> dict[str, str]:
     try:
         await session.execute(text("SELECT 1"))
-    except SQLAlchemyError as exc:
+    except Exception as exc:
         raise ServiceError(
             code="service_not_ready", message="Database is unavailable", status_code=503
         ) from exc

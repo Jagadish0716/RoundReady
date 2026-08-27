@@ -26,9 +26,12 @@ class Settings(BaseSettings):
         default="roundready.events.dlx",
         validation_alias="RABBITMQ_DEAD_LETTER_EXCHANGE",
     )
-    email_provider: str = "stub"
-    whatsapp_provider: str = "stub"
-    max_delivery_attempts: int = 5
+    email_provider: str = "development"
+    whatsapp_provider: str = "development"
+    max_delivery_attempts: int = Field(default=5, ge=1, le=20)
+    retry_base_seconds: int = Field(default=5, ge=1, le=3600)
+    retry_max_seconds: int = Field(default=3600, ge=1, le=86400)
+    database_pooling: bool = True
 
 
 @lru_cache

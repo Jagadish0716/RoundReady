@@ -1,0 +1,18 @@
+"""Durable notification delivery, attempts, idempotency and dead letters."""
+from collections.abc import Sequence
+import sqlalchemy as sa
+from alembic import op
+from sqlalchemy.dialects import postgresql
+
+revision="20260827_0001";down_revision=None;branch_labels:Sequence[str]|None=None;depends_on:Sequence[str]|None=None
+channel=postgresql.ENUM("email","whatsapp",name="notification_channel",create_type=False)
+status=postgresql.ENUM("pending","retry_scheduled","sent","dead_lettered",name="delivery_status",create_type=False)
+def upgrade()->None:
+    channel.create(op.get_bind());status.create(op.get_bind())
+    op.create_table("notifications",sa.Column("id",sa.Uuid(),primary_key=True),sa.Column("event_id",sa.Uuid(),nullable=False),sa.Column("event_type",sa.String(128),nullable=False),sa.Column("correlation_id",sa.String(128),nullable=False),sa.Column("recipient",sa.String(320),nullable=False),sa.Column("channel",channel,nullable=False),sa.Column("template",sa.String(128),nullable=False),sa.Column("template_version",sa.Integer(),nullable=False),sa.Column("rendered_subject",sa.String(255)),sa.Column("rendered_body",sa.Text(),nullable=False),sa.Column("status",status,nullable=False),sa.Column("attempt_count",sa.Integer(),nullable=False),sa.Column("provider_reference",sa.String(255)),sa.Column("next_attempt_at",sa.DateTime(timezone=True)),sa.Column("last_error_code",sa.String(128)),sa.Column("created_at",sa.DateTime(timezone=True),nullable=False),sa.Column("updated_at",sa.DateTime(timezone=True),nullable=False),sa.Column("sent_at",sa.DateTime(timezone=True)),sa.UniqueConstraint("event_id","channel","recipient",name="uq_notification_delivery"),sa.CheckConstraint("attempt_count >= 0",name="ck_notification_attempts"));op.create_index("ix_notifications_event_id","notifications",["event_id"]);op.create_index("ix_notifications_correlation_id","notifications",["correlation_id"]);op.create_index("ix_notification_retry","notifications",["status","next_attempt_at"])
+    op.create_table("delivery_attempts",sa.Column("id",sa.Uuid(),primary_key=True),sa.Column("notification_id",sa.Uuid(),sa.ForeignKey("notifications.id",ondelete="CASCADE"),nullable=False),sa.Column("attempt_number",sa.Integer(),nullable=False),sa.Column("started_at",sa.DateTime(timezone=True),nullable=False),sa.Column("finished_at",sa.DateTime(timezone=True)),sa.Column("successful",sa.Boolean(),nullable=False),sa.Column("provider_reference",sa.String(255)),sa.Column("error_code",sa.String(128)));op.create_index("ix_delivery_attempts_notification_id","delivery_attempts",["notification_id"])
+    op.create_table("processed_events",sa.Column("event_id",sa.Uuid(),primary_key=True),sa.Column("event_type",sa.String(128),nullable=False),sa.Column("processed_at",sa.DateTime(timezone=True),nullable=False))
+    op.create_table("dead_letter_records",sa.Column("id",sa.Uuid(),primary_key=True),sa.Column("event_id",sa.Uuid()),sa.Column("notification_id",sa.Uuid(),sa.ForeignKey("notifications.id")),sa.Column("event_type",sa.String(128),nullable=False),sa.Column("correlation_id",sa.String(128),nullable=False),sa.Column("reason_code",sa.String(128),nullable=False),sa.Column("metadata_json",postgresql.JSONB(),nullable=False),sa.Column("created_at",sa.DateTime(timezone=True),nullable=False));op.create_index("ix_dead_letter_records_event_id","dead_letter_records",["event_id"]);op.create_index("ix_dead_letter_records_notification_id","dead_letter_records",["notification_id"])
+def downgrade()->None:
+    for table in ("dead_letter_records","processed_events","delivery_attempts","notifications"):op.drop_table(table)
+    status.drop(op.get_bind());channel.drop(op.get_bind())
