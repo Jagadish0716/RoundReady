@@ -2,12 +2,13 @@ from uuid import UUID
 
 from app.api.schemas import (
     CandidateProfileResponse,
+    NotificationDestinationResponse,
     ProfileUpsertRequest,
     ResumeMetadataResponse,
     ResumeMetadataUpsertRequest,
 )
 from app.application.profile_service import ProfileService
-from app.dependencies import AdminIdentity, CandidateIdentity, DatabaseSession
+from app.dependencies import AdminIdentity, CandidateIdentity, DatabaseSession, InternalService
 from fastapi import APIRouter
 
 router = APIRouter(prefix="/v1", tags=["candidate profiles"])
@@ -55,3 +56,16 @@ async def admin_get_candidate(
 ) -> CandidateProfileResponse:
     profile = await ProfileService(session).get_profile(user_id)
     return CandidateProfileResponse.model_validate(profile)
+
+
+@router.get(
+    "/internal/candidates/{user_id}/notification-destination",
+    response_model=NotificationDestinationResponse,
+)
+async def notification_destination(
+    user_id: UUID, _service: InternalService, session: DatabaseSession
+) -> NotificationDestinationResponse:
+    profile = await ProfileService(session).get_profile(user_id)
+    return NotificationDestinationResponse(
+        user_id=user_id, email=profile.email, phone=profile.phone
+    )

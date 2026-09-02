@@ -15,7 +15,7 @@ from app.domain.models import (
     Notification,
     ProcessedEvent,
 )
-from app.domain.providers import NotificationProvider, ProviderMessage
+from app.domain.providers import NotificationProvider, ProviderMessage, RecipientResolver
 from app.domain.templates import TemplateError, template_for_event
 
 
@@ -25,10 +25,12 @@ class NotificationService:
         session: AsyncSession,
         providers: dict[Channel, NotificationProvider],
         settings: Settings,
+        resolver: RecipientResolver | None = None,
     ) -> None:
         self.db = session
         self.providers = providers
         self.settings = settings
+        self.resolver = resolver
 
     async def consume(self, event: EventEnvelope) -> list[Notification]:
         if await self.db.get(ProcessedEvent, event.event_id):
@@ -48,6 +50,13 @@ class NotificationService:
             recipients.append((Channel.EMAIL, email))
         if isinstance(whatsapp, str) and whatsapp:
             recipients.append((Channel.WHATSAPP, whatsapp))
+        candidate_id = event.payload.get("candidate_id")
+        if not recipients and isinstance(candidate_id, str) and self.resolver is not None:
+            destination = await self.resolver.resolve(candidate_id, event.correlation_id)
+            if destination.email:
+                recipients.append((Channel.EMAIL, destination.email))
+            if destination.phone:
+                recipients.append((Channel.WHATSAPP, destination.phone))
         if not recipients:
             self._dead_letter(
                 event.event_id, None, event.event_type, event.correlation_id, "recipient_missing"

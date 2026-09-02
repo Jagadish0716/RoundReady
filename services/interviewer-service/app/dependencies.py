@@ -30,8 +30,8 @@ AppSettings = Annotated[Settings, Depends(get_settings)]
 
 async def get_identity(
     settings: AppSettings,
-    authenticated_user_id: Annotated[str | None, Header(alias="X-Authenticated-User-ID")] = None,
-    role: Annotated[str | None, Header(alias="X-Authenticated-Role")] = None,
+    authenticated_user_id: Annotated[str | None, Header(alias="X-User-ID")] = None,
+    role: Annotated[str | None, Header(alias="X-User-Role")] = None,
     internal_secret: Annotated[str | None, Header(alias="X-Internal-Identity-Secret")] = None,
 ) -> Identity:
     expected = settings.internal_identity_secret.get_secret_value()

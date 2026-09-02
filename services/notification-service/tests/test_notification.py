@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from app.application.notification_service import NotificationService
 from app.config import get_settings
@@ -67,6 +68,23 @@ def test_health(client: TestClient) -> None:
     assert client.get("/health").json() == {"status": "ok"}
 
 
+def test_recipient_dependency_retry_classification(client: TestClient) -> None:
+    from app.workers.consumer import retryable_recipient_error
+
+    request = httpx.Request("GET", "http://user-service")
+    assert retryable_recipient_error(httpx.ConnectError("down", request=request))
+    assert retryable_recipient_error(
+        httpx.HTTPStatusError(
+            "unavailable", request=request, response=httpx.Response(503, request=request)
+        )
+    )
+    assert not retryable_recipient_error(
+        httpx.HTTPStatusError(
+            "not found", request=request, response=httpx.Response(404, request=request)
+        )
+    )
+
+
 @pytest.mark.asyncio
 async def test_event_consumption_and_successful_delivery(client: TestClient) -> None:
     value = decode_event(event().model_dump_json().encode())
@@ -95,7 +113,7 @@ async def test_duplicate_event_is_idempotent(client: TestClient) -> None:
 
 @pytest.mark.asyncio
 async def test_versioned_booking_event_contract_is_consumed(client: TestClient) -> None:
-    value = event("booking.BookingConfirmed.v1", recipient_whatsapp=None)
+    value = event("booking.confirmed.v1", recipient_whatsapp=None)
     records = await consume(value)
     assert len(records) == 1 and records[0].template == "booking_confirmed"
 

@@ -20,6 +20,10 @@ def generate(
         headers=admin,
         json={
             "interviewer_id": str(interviewer),
+            "rubric_id": str(uuid4()),
+            "domain": "Backend",
+            "topic": "Python",
+            "experience_level": "mid",
             "windows": [
                 {
                     "starts_at": start.isoformat(),
@@ -123,29 +127,50 @@ def test_payment_event_and_invalid_transition(client: TestClient) -> None:
     slot = generate(client, admin, uuid4(), datetime(2030, 1, 5, 10, tzinfo=UTC))
     status, booking = book(client, headers(), str(slot["id"]), "payment-booking")
     assert status == 201
+    event_id = str(uuid4())
+    payload = {
+        "event_id": event_id,
+        "payment_id": str(uuid4()),
+        "booking_id": booking["id"],
+        "event_type": "payment.captured.v1",
+        "amount_paise": 20000,
+        "currency": "INR",
+    }
     payment = client.post(
         "/v1/internal/payment-events",
         headers=admin,
-        json={
-            "event_id": str(uuid4()),
-            "payment_id": str(uuid4()),
-            "booking_id": booking["id"],
-            "event_type": "payment.captured.v1",
-        },
+        json=payload,
     )
-    assert payment.json()["status"] == "booked"
+    assert payment.json()["status"] == "confirmed"
+    duplicate = client.post("/v1/internal/payment-events", headers=admin, json=payload)
+    assert duplicate.json()["status"] == "confirmed"
     invalid = client.post(
         f"/v1/admin/bookings/{booking['id']}/transition",
         headers=admin,
         json={"status": "completed"},
     )
     assert invalid.status_code == 409
-    confirmed = client.post(
-        f"/v1/admin/bookings/{booking['id']}/transition",
-        headers=admin,
-        json={"status": "confirmed"},
-    )
-    assert confirmed.json()["status"] == "confirmed"
+
+
+def test_failed_payment_releases_slot_for_rebooking(client: TestClient) -> None:
+    admin = headers("admin")
+    slot = generate(client, admin, uuid4(), datetime(2030, 1, 5, 11, tzinfo=UTC))
+    first_status, first = book(client, headers(), str(slot["id"]), "failed-payment-first")
+    assert first_status == 201
+    event = {
+        "event_id": str(uuid4()),
+        "payment_id": str(uuid4()),
+        "booking_id": first["id"],
+        "event_type": "payment.failed.v1",
+        "amount_paise": 20000,
+        "currency": "INR",
+    }
+    failed = client.post("/v1/internal/payment-events", headers=admin, json=event)
+    duplicate = client.post("/v1/internal/payment-events", headers=admin, json=event)
+    second_status, second = book(client, headers(), str(slot["id"]), "failed-payment-second")
+    assert failed.json()["status"] == "payment_failed"
+    assert duplicate.json()["status"] == "payment_failed"
+    assert second_status == 201 and second["slot_id"] == first["slot_id"]
 
 
 def test_redis_lock_expires(infrastructure: tuple[str, str]) -> None:

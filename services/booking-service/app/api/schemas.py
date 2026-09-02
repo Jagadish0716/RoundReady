@@ -24,6 +24,10 @@ class SlotWindow(BaseModel):
 class GenerateSlotsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     interviewer_id: UUID
+    rubric_id: UUID
+    domain: Annotated[str, Field(min_length=1, max_length=80)]
+    topic: Annotated[str, Field(min_length=1, max_length=120)]
+    experience_level: Annotated[str, Field(min_length=1, max_length=40)]
     windows: list[SlotWindow] = Field(min_length=1, max_length=500)
 
 
@@ -31,6 +35,10 @@ class SlotResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     interviewer_id: UUID
+    rubric_id: UUID
+    domain: str
+    topic: str
+    experience_level: str
     starts_at: datetime
     ends_at: datetime
     status: SlotStatus
@@ -75,4 +83,6 @@ class PaymentEventRequest(BaseModel):
     event_id: UUID
     payment_id: UUID
     booking_id: UUID
-    event_type: Annotated[str, Field(pattern=r"^payment\.(captured|failed)\.v1$")]
+    event_type: Annotated[str, Field(pattern=r"^payment\.(captured|failed|refunded)\.v1$")]
+    amount_paise: Annotated[int, Field(ge=1)]
+    currency: Annotated[str, Field(pattern=r"^INR$")]

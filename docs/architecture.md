@@ -12,7 +12,7 @@ keys and UTC timestamps, and never access another service's database.
 
 | Service | Owns | Does not own |
 | --- | --- | --- |
-| API gateway | Public routing, JWT enforcement, request/correlation IDs, Redis-backed rate-limit seam | Identity records or business data |
+| API gateway | Public proxy routing, auth introspection, correlation IDs, Redis rate limiting | Identity records or business data |
 | Auth | Credentials, password hashes, roles, access/refresh token lifecycle and revocation | User or interviewer profiles |
 | User | Candidate account and profile information | Credentials, bookings, or payments |
 | Interviewer | Interviewer profile, domain skills, verification and availability | Booking decisions or sessions |
@@ -27,8 +27,9 @@ database foreign keys. This prevents accidental joins and preserves ownership.
 
 ## Communication
 
-The gateway is the only public backend entry point. It validates authentication before
-forwarding a request and passes `Authorization` and `X-Correlation-ID`. Internal REST calls
+The gateway is the only public backend entry point. It validates tokens through auth-service,
+strips supplied identity headers, and constructs trusted `X-User-ID`, `X-User-Role`, and
+`X-Correlation-ID` headers. Internal REST calls
 are reserved for queries requiring an immediate response, such as fetching availability or
 creating a checkout. They use bounded timeouts, propagate correlation IDs, and must not form
 long synchronous chains.
@@ -42,8 +43,7 @@ versioned implementation are:
 - `interview.room_created.v1`, `interview.completed.v1`, `feedback.submitted.v1`
 - `notification.delivery_failed.v1`
 
-Publishers will use a transactional outbox in their own database before workflows are
-implemented. Consumers must deduplicate by `event_id`, acknowledge only after committing,
+Publishers use a transactional outbox in their own database. Consumers deduplicate by `event_id`, acknowledge only after committing,
 retry transient failures with exponential backoff, and dead-letter permanent failures.
 Schema evolution is additive within an event version; breaking changes increment the
 version. Payload schemas remain owned and documented by the producer.
@@ -70,11 +70,15 @@ call sites. Payment, booking, and notification commands require idempotency keys
 ## Local development
 
 Copy `.env.example` to `.env`, install Python 3.12 and the `dev` extra, then start
-`infrastructure/docker-compose.yml`. Compose currently provides PostgreSQL 16 with one logical
-database per stateful service, Redis 7, and RabbitMQ 3; applications are run separately. Run
-migrations for each service before using business endpoints. `scripts/check.sh` formats-checks,
+`infrastructure/docker-compose.yml`. Compose runs PostgreSQL 16, Redis 7, RabbitMQ 3, all APIs,
+and the aio-pika/outbox workers. Only the gateway exposes an application port; API containers run
+migrations before startup. `scripts/check.sh` formats-checks,
 lints, strictly type-checks, and tests every service in isolation, avoiding import collisions
 between deliberately independent `app` packages.
+
+Gateway identity and service-to-service credentials are separate, environment-configured secrets.
+aio-pika is the deliberate messaging implementation; Celery is not required by the current
+acknowledgement, durable queue, reconnect and dead-letter design.
 
 ## Future production deployment
 

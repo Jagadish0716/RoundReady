@@ -95,6 +95,221 @@ services:
       start_period: 10s
     networks: [roundready-local]
 
+  auth-service:
+    build: {context: .., dockerfile: services/auth-service/Dockerfile}
+    container_name: roundready-auth-service
+    restart: unless-stopped
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment: &auth-environment
+      AUTH_DATABASE_URL: postgresql+asyncpg://${AUTH_DB_USER:?}:${AUTH_DB_PASSWORD:?}@postgres:5432/${AUTH_DB_NAME:-roundready_auth}
+      JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env}
+      JWT_ISSUER: ${JWT_ISSUER:-roundready-auth}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-roundready-api}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
+      RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-roundready.events}
+    depends_on: {postgres: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
+    healthcheck: &api-health
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [roundready-local]
+
+  user-service:
+    build: {context: .., dockerfile: services/user-service/Dockerfile}
+    container_name: roundready-user-service
+    restart: unless-stopped
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment:
+      USER_DATABASE_URL: postgresql+asyncpg://${USER_DB_USER:?}:${USER_DB_PASSWORD:?}@postgres:5432/${USER_DB_NAME:-roundready_user}
+      INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?Set INTERNAL_IDENTITY_SECRET in .env}
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?Set INTERNAL_SERVICE_SECRET in .env}
+    depends_on: {postgres: {condition: service_healthy}}
+    healthcheck: *api-health
+    networks: [roundready-local]
+
+  interviewer-service:
+    build: {context: .., dockerfile: services/interviewer-service/Dockerfile}
+    container_name: roundready-interviewer-service
+    restart: unless-stopped
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment: &interviewer-environment
+      INTERVIEWER_DATABASE_URL: postgresql+asyncpg://${INTERVIEWER_DB_USER:?}:${INTERVIEWER_DB_PASSWORD:?}@postgres:5432/${INTERVIEWER_DB_NAME:-roundready_interviewer}
+      INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
+    depends_on: {postgres: {condition: service_healthy}}
+    healthcheck: *api-health
+    networks: [roundready-local]
+
+  booking-service:
+    build: {context: .., dockerfile: services/booking-service/Dockerfile}
+    container_name: roundready-booking-service
+    restart: unless-stopped
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment: &booking-environment
+      BOOKING_DATABASE_URL: postgresql+asyncpg://${BOOKING_DB_USER:?}:${BOOKING_DB_PASSWORD:?}@postgres:5432/${BOOKING_DB_NAME:-roundready_booking}
+      BOOKING_REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379/2
+      INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
+    depends_on: {postgres: {condition: service_healthy}, redis: {condition: service_healthy}}
+    healthcheck: *api-health
+    networks: [roundready-local]
+
+  payment-service:
+    build: {context: .., dockerfile: services/payment-service/Dockerfile}
+    container_name: roundready-payment-service
+    restart: unless-stopped
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment: &payment-environment
+      PAYMENT_DATABASE_URL: postgresql+asyncpg://${PAYMENT_DB_USER:?}:${PAYMENT_DB_PASSWORD:?}@postgres:5432/${PAYMENT_DB_NAME:-roundready_payment}
+      INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID:?}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET:?}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET:?}
+      RAZORPAY_TEST_MODE: "true"
+      PAYMENT_PROVIDER: development
+    depends_on: {postgres: {condition: service_healthy}}
+    healthcheck: *api-health
+    networks: [roundready-local]
+
+  interview-service:
+    build: {context: .., dockerfile: services/interview-service/Dockerfile}
+    container_name: roundready-interview-service
+    restart: unless-stopped
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment: &interview-environment
+      INTERVIEW_DATABASE_URL: postgresql+asyncpg://${INTERVIEW_DB_USER:?}:${INTERVIEW_DB_PASSWORD:?}@postgres:5432/${INTERVIEW_DB_NAME:-roundready_interview}
+      INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
+      LIVEKIT_URL: ${LIVEKIT_URL:-http://livekit:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?}
+      LIVEKIT_TEST_MODE: "true"
+      VIDEO_PROVIDER: development
+    depends_on: {postgres: {condition: service_healthy}}
+    healthcheck: *api-health
+    networks: [roundready-local]
+
+  notification-service:
+    build: {context: .., dockerfile: services/notification-service/Dockerfile}
+    container_name: roundready-notification-service
+    restart: unless-stopped
+    command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+    environment: &notification-environment
+      NOTIFICATION_DATABASE_URL: postgresql+asyncpg://${NOTIFICATION_DB_USER:?}:${NOTIFICATION_DB_PASSWORD:?}@postgres:5432/${NOTIFICATION_DB_NAME:-roundready_notification}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
+      USER_SERVICE_URL: http://user-service:8000
+      INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?}
+    depends_on: {postgres: {condition: service_healthy}}
+    healthcheck: *api-health
+    networks: [roundready-local]
+
+  api-gateway:
+    build: {context: .., dockerfile: services/api-gateway/Dockerfile}
+    container_name: roundready-api-gateway
+    restart: unless-stopped
+    environment:
+      REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379/0
+      AUTH_SERVICE_URL: http://auth-service:8000
+      USER_SERVICE_URL: http://user-service:8000
+      INTERVIEWER_SERVICE_URL: http://interviewer-service:8000
+      BOOKING_SERVICE_URL: http://booking-service:8000
+      PAYMENT_SERVICE_URL: http://payment-service:8000
+      INTERVIEW_SERVICE_URL: http://interview-service:8000
+      NOTIFICATION_SERVICE_URL: http://notification-service:8000
+      INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
+      CORS_ORIGINS: ${CORS_ORIGINS:-[]}
+      RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-60}
+      RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}
+    ports: ["127.0.0.1:${API_GATEWAY_PORT:-8000}:8000"]
+    depends_on:
+      auth-service: {condition: service_healthy}
+      user-service: {condition: service_healthy}
+      interviewer-service: {condition: service_healthy}
+      booking-service: {condition: service_healthy}
+      payment-service: {condition: service_healthy}
+      interview-service: {condition: service_healthy}
+      notification-service: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck: *api-health
+    networks: [roundready-local]
+
+  auth-outbox-worker:
+    build: {context: .., dockerfile: services/auth-service/Dockerfile}
+    container_name: roundready-auth-outbox-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.outbox"]
+    environment: *auth-environment
+    depends_on: {auth-service: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
+    networks: [roundready-local]
+
+  interviewer-outbox-worker:
+    build: {context: .., dockerfile: services/interviewer-service/Dockerfile}
+    container_name: roundready-interviewer-outbox-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.outbox"]
+    environment: *interviewer-environment
+    depends_on: {interviewer-service: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
+    networks: [roundready-local]
+
+  booking-worker:
+    build: {context: .., dockerfile: services/booking-service/Dockerfile}
+    container_name: roundready-booking-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.maintenance"]
+    environment: *booking-environment
+    depends_on: {booking-service: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
+    networks: [roundready-local]
+
+  booking-event-worker:
+    build: {context: .., dockerfile: services/booking-service/Dockerfile}
+    container_name: roundready-booking-event-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.events"]
+    environment: *booking-environment
+    depends_on: {booking-service: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
+    networks: [roundready-local]
+
+  payment-outbox-worker:
+    build: {context: .., dockerfile: services/payment-service/Dockerfile}
+    container_name: roundready-payment-outbox-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.outbox"]
+    environment: *payment-environment
+    depends_on: {payment-service: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
+    networks: [roundready-local]
+
+  interview-event-worker:
+    build: {context: .., dockerfile: services/interview-service/Dockerfile}
+    container_name: roundready-interview-event-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.events"]
+    environment: *interview-environment
+    depends_on: {interview-service: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
+    networks: [roundready-local]
+
+  interview-outbox-worker:
+    build: {context: .., dockerfile: services/interview-service/Dockerfile}
+    container_name: roundready-interview-outbox-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.outbox"]
+    environment: *interview-environment
+    depends_on: {interview-service: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
+    networks: [roundready-local]
+
+  notification-worker:
+    build: {context: .., dockerfile: services/notification-service/Dockerfile}
+    container_name: roundready-notification-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.consumer"]
+    environment: *notification-environment
+    depends_on:
+      notification-service: {condition: service_healthy}
+      user-service: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    networks: [roundready-local]
+
 networks:
   roundready-local:
     name: roundready-local-network

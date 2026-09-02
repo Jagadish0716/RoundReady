@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.domain.providers import PaymentProvider
 from app.infrastructure.database import get_db_session
+from app.infrastructure.development import DevelopmentPaymentProvider
 from app.infrastructure.razorpay import RazorpayTestAdapter
 
 
@@ -32,8 +33,8 @@ AppSettings = Annotated[Settings, Depends(get_settings)]
 
 async def get_identity(
     settings: AppSettings,
-    user_id: Annotated[str | None, Header(alias="X-Authenticated-User-ID")] = None,
-    role: Annotated[str | None, Header(alias="X-Authenticated-Role")] = None,
+    user_id: Annotated[str | None, Header(alias="X-User-ID")] = None,
+    role: Annotated[str | None, Header(alias="X-User-Role")] = None,
     secret: Annotated[str | None, Header(alias="X-Internal-Identity-Secret")] = None,
 ) -> Identity:
     expected = settings.internal_identity_secret.get_secret_value()
@@ -77,6 +78,8 @@ AdminIdentity = Annotated[Identity, Depends(require_admin)]
 
 
 def get_payment_provider(settings: AppSettings) -> PaymentProvider:
+    if settings.payment_provider == "development":
+        return DevelopmentPaymentProvider(settings.razorpay_webhook_secret.get_secret_value())
     return RazorpayTestAdapter(
         settings.razorpay_key_id.get_secret_value(),
         settings.razorpay_key_secret.get_secret_value(),

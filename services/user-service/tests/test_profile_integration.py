@@ -16,8 +16,8 @@ def test_internal_identity_is_required(client: TestClient) -> None:
     spoofed = client.get(
         "/v1/me/profile",
         headers={
-            "X-Authenticated-User-ID": str(uuid4()),
-            "X-Authenticated-Role": "candidate",
+            "X-User-ID": str(uuid4()),
+            "X-User-Role": "candidate",
             "X-Internal-Identity-Secret": "wrong-secret",
         },
     )
@@ -37,7 +37,7 @@ def test_candidate_creates_gets_and_updates_own_profile(
 
     assert absent.status_code == 404
     assert created.status_code == 200
-    assert created.json()["user_id"] == candidate_headers["X-Authenticated-User-ID"]
+    assert created.json()["user_id"] == candidate_headers["X-User-ID"]
     assert fetched.json() == created.json()
     assert updated.json()["city"] == "Hyderabad"
     assert updated.json()["experience_years"] == "5.0"
@@ -63,7 +63,7 @@ def test_candidate_cannot_access_another_candidate(
     second = identity_headers()
     assert client.put("/v1/me/profile", headers=first, json=profile_payload).status_code == 200
     assert client.get("/v1/me/profile", headers=second).status_code == 404
-    target_id = first["X-Authenticated-User-ID"]
+    target_id = first["X-User-ID"]
     forbidden = client.get(f"/v1/admin/candidates/{target_id}", headers=second)
     assert forbidden.status_code == 403
     assert forbidden.json()["error"]["code"] == "admin_role_required"

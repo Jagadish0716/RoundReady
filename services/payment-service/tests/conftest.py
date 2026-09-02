@@ -85,8 +85,8 @@ def client(postgres_url: str) -> Iterator[TestClient]:
 
 def identity(role: str = "candidate", user_id: UUID | None = None) -> dict[str, str]:
     return {
-        "X-Authenticated-User-ID": str(user_id or uuid4()),
-        "X-Authenticated-Role": role,
+        "X-User-ID": str(user_id or uuid4()),
+        "X-User-Role": role,
         "X-Internal-Identity-Secret": INTERNAL_SECRET,
     }
 

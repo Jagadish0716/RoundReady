@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     internal_identity_secret: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_IDENTITY_SECRET"
     )
+    internal_service_secret: SecretStr = Field(
+        default=SecretStr(""), validation_alias="INTERNAL_SERVICE_SECRET"
+    )
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
     rabbitmq_exchange: str = Field(
         default="roundready.events", validation_alias="RABBITMQ_EXCHANGE"

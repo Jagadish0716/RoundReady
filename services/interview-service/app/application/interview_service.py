@@ -2,6 +2,14 @@ from datetime import UTC, datetime, timedelta
 from typing import cast
 from uuid import UUID
 
+from roundready_common.contracts import (
+    CANDIDATE_NO_SHOW,
+    FEEDBACK_SUBMITTED,
+    INTERVIEW_COMPLETED,
+    INTERVIEW_STARTED,
+    INTERVIEWER_NO_SHOW,
+    TECHNICAL_FAILURE,
+)
 from roundready_common.correlation import get_correlation_id
 from roundready_common.errors import ServiceError
 from sqlalchemy import select
@@ -189,7 +197,7 @@ class InterviewService:
             if item.status is SessionStatus.READY:
                 item.status = SessionStatus.IN_PROGRESS
                 item.actual_start = when
-                self._event("InterviewStarted", item)
+                self._event(INTERVIEW_STARTED, item)
         else:
             if participant.connected and participant.last_joined_at:
                 participant.total_connected_seconds += max(
@@ -235,10 +243,10 @@ class InterviewService:
         item.status = target
         now = datetime.now(UTC)
         event = {
-            SessionStatus.COMPLETED: "InterviewCompleted",
-            SessionStatus.CANDIDATE_NO_SHOW: "CandidateNoShow",
-            SessionStatus.INTERVIEWER_NO_SHOW: "InterviewerNoShow",
-            SessionStatus.TECHNICAL_FAILURE: "TechnicalFailure",
+            SessionStatus.COMPLETED: INTERVIEW_COMPLETED,
+            SessionStatus.CANDIDATE_NO_SHOW: CANDIDATE_NO_SHOW,
+            SessionStatus.INTERVIEWER_NO_SHOW: INTERVIEWER_NO_SHOW,
+            SessionStatus.TECHNICAL_FAILURE: TECHNICAL_FAILURE,
         }.get(target)
         if target in {SessionStatus.COMPLETED, SessionStatus.TECHNICAL_FAILURE}:
             item.actual_end = now
@@ -246,6 +254,8 @@ class InterviewService:
                 item.total_duration_seconds = max(0, int((now - item.actual_start).total_seconds()))
         if event:
             self._event(event, item)
+        if target is SessionStatus.COMPLETED:
+            item.status = SessionStatus.FEEDBACK_PENDING
         await self.db.commit()
         return item
 
@@ -263,7 +273,7 @@ class InterviewService:
                 message="Only the assigned interviewer can submit feedback",
                 status_code=403,
             )
-        if item.status is not SessionStatus.COMPLETED:
+        if item.status is not SessionStatus.FEEDBACK_PENDING:
             raise ServiceError(
                 code="session_not_completed",
                 message="Feedback requires a completed interview",
@@ -296,7 +306,8 @@ class InterviewService:
         )
         self.db.add(report)
         await self.db.flush()
-        self._event("FeedbackSubmitted", item, {"feedback_id": str(report.id)})
+        item.status = SessionStatus.FEEDBACK_SUBMITTED
+        self._event(FEEDBACK_SUBMITTED, item, {"feedback_id": str(report.id)})
         await self.db.commit()
         return report
 
@@ -305,7 +316,7 @@ class InterviewService:
         if (
             item is None
             or item.candidate_id != candidate_id
-            or item.status is not SessionStatus.COMPLETED
+            or item.status is not SessionStatus.FEEDBACK_SUBMITTED
         ):
             raise ServiceError(
                 code="feedback_not_found", message="Feedback report was not found", status_code=404

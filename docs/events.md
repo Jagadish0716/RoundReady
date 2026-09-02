@@ -14,5 +14,10 @@
 
 Times are UTC ISO 8601 values. IDs are UUIDs. The routing key equals `event_type`.
 
-Notification-producing payloads include `recipient_email` and/or `recipient_whatsapp`. These
-delivery addresses are consumed only by notification-service and must never be written to logs.
+Canonical routing keys include `payment.captured.v1`, `payment.failed.v1`,
+`payment.refunded.v1`, `booking.confirmed.v1`, `booking.cancelled.v1`,
+`interview.completed.v1`, and `feedback.submitted.v1`.
+
+Feedback events contain candidate/interview/feedback identifiers, not contact data.
+notification-service resolves destinations through the authenticated user-service internal API.
+Consumers deduplicate by `event_id`; acknowledgements occur after the service transaction commits.

@@ -90,3 +90,9 @@ class ResumeMetadataResponse(BaseModel):
     checksum_sha256: str
     uploaded_at: datetime
     updated_at: datetime
+
+
+class NotificationDestinationResponse(BaseModel):
+    user_id: UUID
+    email: EmailStr | None
+    phone: str | None

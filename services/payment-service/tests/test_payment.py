@@ -144,7 +144,7 @@ def test_full_refund_and_audit_event(client: TestClient, postgres_url: str) -> N
             .scalars()
             .all()
         )
-        assert event_types == ["PaymentCaptured", "PaymentRefunded"]
+        assert event_types == ["payment.captured.v1", "payment.refunded.v1"]
     engine.dispose()
 
 

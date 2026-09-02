@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import TSTZRANGE, ExcludeConstraint, Range
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -66,6 +67,10 @@ class Slot(Base):
     )
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     interviewer_id: Mapped[UUID] = mapped_column(index=True)
+    rubric_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    domain: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    topic: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    experience_level: Mapped[str | None] = mapped_column(String(40), nullable=True)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     status: Mapped[SlotStatus] = mapped_column(
@@ -96,7 +101,12 @@ class Booking(Base):
             name="ex_bookings_interviewer_overlap",
         ),
         UniqueConstraint("candidate_id", "idempotency_key", name="uq_booking_idempotency"),
-        UniqueConstraint("slot_id", name="uq_booking_slot"),
+        Index(
+            "uq_booking_active_slot",
+            "slot_id",
+            unique=True,
+            postgresql_where=text("occupies_time"),
+        ),
         CheckConstraint("amount_paise = 20000", name="ck_booking_price"),
         CheckConstraint("currency = 'INR'", name="ck_booking_currency"),
     )
@@ -104,6 +114,10 @@ class Booking(Base):
     slot_id: Mapped[UUID] = mapped_column(ForeignKey("slots.id"), index=True)
     candidate_id: Mapped[UUID] = mapped_column(index=True)
     interviewer_id: Mapped[UUID] = mapped_column(index=True)
+    rubric_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    domain: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    topic: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    experience_level: Mapped[str | None] = mapped_column(String(40), nullable=True)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     time_range: Mapped[Range[datetime]] = mapped_column(TSTZRANGE, nullable=False)

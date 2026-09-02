@@ -132,6 +132,11 @@ async def payment(
 ) -> BookingResponse:
     return BookingResponse.model_validate(
         await service(session, holds, settings).handle_payment(
-            request.event_id, request.event_type, request.payment_id, request.booking_id
+            request.event_id,
+            request.event_type,
+            request.payment_id,
+            request.booking_id,
+            request.amount_paise,
+            request.currency,
         )
     )

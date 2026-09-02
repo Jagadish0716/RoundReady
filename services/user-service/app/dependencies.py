@@ -16,8 +16,8 @@ AppSettings = Annotated[Settings, Depends(get_settings)]
 
 async def get_internal_identity(
     settings: AppSettings,
-    authenticated_user_id: Annotated[str | None, Header(alias="X-Authenticated-User-ID")] = None,
-    role: Annotated[str | None, Header(alias="X-Authenticated-Role")] = None,
+    authenticated_user_id: Annotated[str | None, Header(alias="X-User-ID")] = None,
+    role: Annotated[str | None, Header(alias="X-User-Role")] = None,
     internal_secret: Annotated[str | None, Header(alias="X-Internal-Identity-Secret")] = None,
 ) -> InternalIdentity:
     expected_secret = settings.internal_identity_secret.get_secret_value()
@@ -66,3 +66,26 @@ async def require_admin(identity: AuthenticatedIdentity) -> InternalIdentity:
 
 CandidateIdentity = Annotated[InternalIdentity, Depends(require_candidate)]
 AdminIdentity = Annotated[InternalIdentity, Depends(require_admin)]
+
+
+async def require_internal_service(
+    settings: AppSettings,
+    service_name: Annotated[str | None, Header(alias="X-Service-Name")] = None,
+    secret: Annotated[str | None, Header(alias="X-Internal-Service-Secret")] = None,
+) -> str:
+    expected = settings.internal_service_secret.get_secret_value()
+    if (
+        service_name != "notification-service"
+        or not expected
+        or secret is None
+        or not secrets.compare_digest(secret, expected)
+    ):
+        raise ServiceError(
+            code="invalid_service_credentials",
+            message="Authenticated internal service is required",
+            status_code=401,
+        )
+    return service_name
+
+
+InternalService = Annotated[str, Depends(require_internal_service)]

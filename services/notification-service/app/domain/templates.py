@@ -92,11 +92,14 @@ TEMPLATES: dict[str, Template] = {
 }
 
 EVENT_ALIASES = {
-    "booking.BookingConfirmed.v1": "BookingConfirmed",
-    "booking.BookingCancelled.v1": "BookingCancelled",
-    "booking.BookingRescheduled.v1": "BookingRescheduled",
-    "booking.InterviewerNoShow.v1": "InterviewerNoShow",
-    "booking.CandidateNoShow.v1": "CandidateNoShow",
+    "booking.confirmed.v1": "BookingConfirmed",
+    "booking.cancelled.v1": "BookingCancelled",
+    "booking.rescheduled.v1": "BookingRescheduled",
+    "payment.captured.v1": "PaymentCaptured",
+    "payment.refunded.v1": "PaymentRefunded",
+    "interview.interviewer_no_show.v1": "InterviewerNoShow",
+    "interview.candidate_no_show.v1": "CandidateNoShow",
+    "feedback.submitted.v1": "FeedbackSubmitted",
 }
 
 

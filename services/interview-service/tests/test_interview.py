@@ -210,7 +210,11 @@ def test_persistence_and_published_event_records(
             .scalars()
             .all()
         )
-        assert events == ["InterviewStarted", "InterviewCompleted", "FeedbackSubmitted"]
+        assert events == [
+            "interview.started.v1",
+            "interview.completed.v1",
+            "feedback.submitted.v1",
+        ]
     engine.dispose()
 
 

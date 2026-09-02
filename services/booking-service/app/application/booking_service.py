@@ -18,6 +18,15 @@ from app.domain.models import (
 )
 from app.domain.state_machine import can_transition, occupies_time
 from app.infrastructure.holds import RedisHoldStore
+from roundready_common.contracts import (
+    BOOKING_CANCELLED,
+    BOOKING_CONFIRMED,
+    BOOKING_CREATED,
+    BOOKING_RESCHEDULED,
+    PAYMENT_CAPTURED,
+    PAYMENT_FAILED,
+    PAYMENT_REFUNDED,
+)
 from roundready_common.correlation import get_correlation_id
 from roundready_common.errors import ServiceError
 from sqlalchemy import or_, select, update
@@ -44,6 +53,10 @@ class BookingService:
             {
                 "id": uuid4(),
                 "interviewer_id": request.interviewer_id,
+                "rubric_id": request.rubric_id,
+                "domain": request.domain,
+                "topic": request.topic,
+                "experience_level": request.experience_level,
                 "starts_at": w.starts_at,
                 "ends_at": w.ends_at,
                 "status": SlotStatus.AVAILABLE,
@@ -150,6 +163,10 @@ class BookingService:
             slot_id=slot.id,
             candidate_id=candidate_id,
             interviewer_id=slot.interviewer_id,
+            rubric_id=slot.rubric_id,
+            domain=slot.domain,
+            topic=slot.topic,
+            experience_level=slot.experience_level,
             starts_at=slot.starts_at,
             ends_at=slot.ends_at,
             time_range=Range(slot.starts_at, slot.ends_at, bounds="[)"),
@@ -173,7 +190,7 @@ class BookingService:
         slot.status = SlotStatus.BOOKED
         slot.hold_token_hash = None
         slot.hold_expires_at = None
-        self._event("booking.BookingCreated.v1", booking)
+        self._event(BOOKING_CREATED, booking)
         try:
             await self.session.commit()
         except IntegrityError as exc:
@@ -223,15 +240,12 @@ class BookingService:
             )
         )
         event = {
-            BookingStatus.CONFIRMED: "BookingConfirmed",
-            BookingStatus.CANCELLED: "BookingCancelled",
-            BookingStatus.COMPLETED: "BookingCompleted",
-            BookingStatus.CANDIDATE_NO_SHOW: "CandidateNoShow",
-            BookingStatus.INTERVIEWER_NO_SHOW: "InterviewerNoShow",
-            BookingStatus.RESCHEDULED: "BookingRescheduled",
+            BookingStatus.CONFIRMED: BOOKING_CONFIRMED,
+            BookingStatus.CANCELLED: BOOKING_CANCELLED,
+            BookingStatus.RESCHEDULED: BOOKING_RESCHEDULED,
         }.get(target)
         if event:
-            self._event(f"booking.{event}.v1", booking)
+            self._event(event, booking)
         if not booking.occupies_time:
             await self.session.execute(
                 update(Slot).where(Slot.id == booking.slot_id).values(status=SlotStatus.AVAILABLE)
@@ -252,7 +266,13 @@ class BookingService:
         return await self.transition(booking_id, BookingStatus.CANCELLED, candidate_id, reason)
 
     async def handle_payment(
-        self, event_id: UUID, event_type: str, payment_id: UUID, booking_id: UUID
+        self,
+        event_id: UUID,
+        event_type: str,
+        payment_id: UUID,
+        booking_id: UUID,
+        amount_paise: int,
+        currency: str,
     ) -> Booking:
         if await self.session.get(ProcessedEvent, event_id):
             booking = await self.session.get(Booking, booking_id)
@@ -265,26 +285,44 @@ class BookingService:
             raise ServiceError(
                 code="booking_not_found", message="Booking was not found", status_code=404
             )
-        self.session.add(ProcessedEvent(event_id=event_id, event_type=event_type))
-        booking.payment_id = payment_id
-        target = (
-            BookingStatus.BOOKED
-            if event_type == "payment.captured.v1"
-            else BookingStatus.PAYMENT_FAILED
-        )
-        previous = booking.status
-        if not can_transition(previous, target):
+        if amount_paise != booking.amount_paise or currency != booking.currency:
             raise ServiceError(
-                code="invalid_booking_transition",
-                message="Payment event is invalid for booking state",
+                code="payment_amount_mismatch",
+                message="Payment amount or currency does not match booking",
                 status_code=409,
             )
-        booking.status = target
-        booking.occupies_time = occupies_time(target)
-        self.session.add(
-            BookingStatusHistory(booking_id=booking.id, from_status=previous, to_status=target)
-        )
-        self._event("booking.BookingPaymentRecorded.v1", booking)
+        booking.payment_id = payment_id
+        targets = {
+            PAYMENT_CAPTURED: [BookingStatus.BOOKED, BookingStatus.CONFIRMED],
+            PAYMENT_FAILED: [BookingStatus.PAYMENT_FAILED],
+            PAYMENT_REFUNDED: [BookingStatus.REFUNDED],
+        }.get(event_type)
+        if targets is None:
+            raise ServiceError(
+                code="unsupported_payment_event",
+                message="Payment event type is unsupported",
+                status_code=422,
+            )
+        self.session.add(ProcessedEvent(event_id=event_id, event_type=event_type))
+        for target in targets:
+            previous = booking.status
+            if not can_transition(previous, target):
+                raise ServiceError(
+                    code="invalid_booking_transition",
+                    message="Payment event is invalid for booking state",
+                    status_code=409,
+                )
+            booking.status = target
+            booking.occupies_time = occupies_time(target)
+            self.session.add(
+                BookingStatusHistory(booking_id=booking.id, from_status=previous, to_status=target)
+            )
+        if booking.status is BookingStatus.CONFIRMED:
+            self._event(BOOKING_CONFIRMED, booking)
+        if not booking.occupies_time:
+            await self.session.execute(
+                update(Slot).where(Slot.id == booking.slot_id).values(status=SlotStatus.AVAILABLE)
+            )
         await self.session.commit()
         return cast(Booking, booking)
 
@@ -319,6 +357,14 @@ class BookingService:
                     "candidate_id": str(booking.candidate_id),
                     "interviewer_id": str(booking.interviewer_id),
                     "status": booking.status.value,
+                    "scheduled_start": booking.starts_at.isoformat(),
+                    "scheduled_end": booking.ends_at.isoformat(),
+                    "amount_paise": booking.amount_paise,
+                    "currency": booking.currency,
+                    "rubric_id": str(booking.rubric_id),
+                    "domain": booking.domain,
+                    "topic": booking.topic,
+                    "experience_level": booking.experience_level,
                 },
             )
         )

@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from roundready_common.contracts import PAYMENT_CAPTURED, PAYMENT_FAILED, PAYMENT_REFUNDED
 from roundready_common.correlation import get_correlation_id
 from roundready_common.errors import ServiceError
 from sqlalchemy import func, select
@@ -61,7 +62,7 @@ class PaymentService:
                 raise ValueError("Provider returned an inconsistent order")
         except Exception as exc:
             self._transition(payment, PaymentStatus.FAILED, "order_creation_failed")
-            self._event("PaymentFailed", payment, {"reason": "order_creation_failed"})
+            self._event(PAYMENT_FAILED, payment, {"reason": "order_creation_failed"})
             await self.session.commit()
             raise ServiceError(
                 code="provider_error",
@@ -183,9 +184,9 @@ class PaymentService:
             )
         self._transition(payment, target, event_type, str(provider_payment_id))
         if target is PaymentStatus.CAPTURED:
-            self._event("PaymentCaptured", payment)
+            self._event(PAYMENT_CAPTURED, payment)
         elif target is PaymentStatus.FAILED:
-            self._event("PaymentFailed", payment)
+            self._event(PAYMENT_FAILED, payment)
 
     async def refund(self, payment_id: UUID, amount: int | None, reason: str) -> Refund:
         payment = await self.session.scalar(
@@ -256,7 +257,7 @@ class PaymentService:
             )
             self._transition(payment, target, "refund_processed", result.refund_id)
             self._event(
-                "PaymentRefunded",
+                PAYMENT_REFUNDED,
                 payment,
                 {"refund_id": str(refund.id), "amount_paise": refund_amount},
             )
@@ -291,7 +292,7 @@ class PaymentService:
         )
         self._transition(payment, target, "refund.processed", refund.provider_refund_id)
         self._event(
-            "PaymentRefunded",
+            PAYMENT_REFUNDED,
             payment,
             {"refund_id": str(refund.id), "amount_paise": refund.amount_paise},
         )

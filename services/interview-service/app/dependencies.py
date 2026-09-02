@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import Settings, get_settings
 from app.domain.providers import VideoProvider
 from app.infrastructure.database import get_db_session
+from app.infrastructure.development import DevelopmentVideoProvider
 from app.infrastructure.livekit import LiveKitDevelopmentAdapter
 
 
@@ -32,8 +33,8 @@ AppSettings = Annotated[Settings, Depends(get_settings)]
 
 async def get_identity(
     settings: AppSettings,
-    user_id: Annotated[str | None, Header(alias="X-Authenticated-User-ID")] = None,
-    role: Annotated[str | None, Header(alias="X-Authenticated-Role")] = None,
+    user_id: Annotated[str | None, Header(alias="X-User-ID")] = None,
+    role: Annotated[str | None, Header(alias="X-User-Role")] = None,
     secret: Annotated[str | None, Header(alias="X-Internal-Identity-Secret")] = None,
 ) -> Identity:
     expected = settings.internal_identity_secret.get_secret_value()
@@ -68,6 +69,13 @@ AdminIdentity = Annotated[Identity, Depends(require_admin)]
 
 
 def get_video_provider(settings: AppSettings) -> VideoProvider:
+    if settings.video_provider == "development":
+        return DevelopmentVideoProvider(
+            settings.livekit_url,
+            settings.livekit_api_key.get_secret_value(),
+            settings.livekit_api_secret.get_secret_value(),
+            settings.participant_token_ttl_seconds,
+        )
     return LiveKitDevelopmentAdapter(
         settings.livekit_url,
         settings.livekit_api_key.get_secret_value(),

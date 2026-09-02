@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     )
     email_provider: str = "development"
     whatsapp_provider: str = "development"
+    user_service_url: str = "http://user-service:8000"
+    internal_service_secret: SecretStr = Field(
+        default=SecretStr(""), validation_alias="INTERNAL_SERVICE_SECRET"
+    )
     max_delivery_attempts: int = Field(default=5, ge=1, le=20)
     retry_base_seconds: int = Field(default=5, ge=1, le=3600)
     retry_max_seconds: int = Field(default=3600, ge=1, le=86400)

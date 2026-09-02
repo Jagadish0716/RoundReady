@@ -35,6 +35,8 @@ class SessionStatus(StrEnum):
     READY = "ready"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+    FEEDBACK_PENDING = "feedback_pending"
+    FEEDBACK_SUBMITTED = "feedback_submitted"
     CANDIDATE_NO_SHOW = "candidate_no_show"
     INTERVIEWER_NO_SHOW = "interviewer_no_show"
     TECHNICAL_FAILURE = "technical_failure"
