@@ -1,16 +1,23 @@
 import json
-from uuid import uuid4
+from typing import cast
+from uuid import UUID, uuid4
 
+import httpx
 from conftest import identity, signature
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
 
-def create_payment(client: TestClient, key: str = "idem-key-0001", user_id=None):
-    return client.post(
-        "/v1/payments/orders",
-        json={"booking_id": str(uuid4())},
-        headers={**identity(user_id=user_id), "Idempotency-Key": key},
+def create_payment(
+    client: TestClient, key: str = "idem-key-0001", user_id: UUID | None = None
+) -> httpx.Response:
+    return cast(
+        httpx.Response,
+        client.post(
+            "/v1/payments/orders",
+            json={"booking_id": str(uuid4())},
+            headers={**identity(user_id=user_id), "Idempotency-Key": key},
+        ),
     )
 
 
@@ -21,8 +28,8 @@ def webhook(
     order_id: str,
     payment_id: str | None = None,
     *,
-    valid=True,
-):
+    valid: bool = True,
+) -> httpx.Response:
     payload = {
         "event": event_type,
         "payload": {
@@ -37,14 +44,17 @@ def webhook(
         },
     }
     body = json.dumps(payload, separators=(",", ":")).encode()
-    return client.post(
-        "/v1/webhooks/razorpay",
-        content=body,
-        headers={
-            "content-type": "application/json",
-            "X-Razorpay-Event-Id": event_id,
-            "X-Razorpay-Signature": signature(body) if valid else "invalid",
-        },
+    return cast(
+        httpx.Response,
+        client.post(
+            "/v1/webhooks/razorpay",
+            content=body,
+            headers={
+                "content-type": "application/json",
+                "X-Razorpay-Event-Id": event_id,
+                "X-Razorpay-Signature": signature(body) if valid else "invalid",
+            },
+        ),
     )
 
 

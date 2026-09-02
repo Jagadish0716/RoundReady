@@ -1,4 +1,4 @@
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from uuid import uuid4
 
 import httpx
@@ -22,7 +22,7 @@ class FakeLimiter:
 
 
 @pytest.fixture
-def gateway() -> tuple[TestClient, list[httpx.Request], FakeLimiter]:
+def gateway() -> Iterator[tuple[TestClient, list[httpx.Request], FakeLimiter]]:
     requests: list[httpx.Request] = []
     limiter = FakeLimiter()
 

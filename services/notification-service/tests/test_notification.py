@@ -21,8 +21,8 @@ from roundready_common.messaging import decode_event
 from sqlalchemy import func, select
 
 
-def event(event_type: str = "BookingConfirmed", **payload) -> EventEnvelope:
-    base = {
+def event(event_type: str = "BookingConfirmed", **payload: object) -> EventEnvelope:
+    base: dict[str, object] = {
         "recipient_email": "candidate@example.com",
         "recipient_whatsapp": "+919999999999",
         "recipient_name": "Candidate",
@@ -42,7 +42,7 @@ def event(event_type: str = "BookingConfirmed", **payload) -> EventEnvelope:
     )
 
 
-async def consume(value: EventEnvelope):
+async def consume(value: EventEnvelope) -> list[Notification]:
     from app.infrastructure.database import session_factory
 
     async with session_factory() as session:

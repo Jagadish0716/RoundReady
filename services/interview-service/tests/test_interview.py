@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from typing import cast
+from uuid import UUID, uuid4
 
+import httpx
 import jwt
 from app.infrastructure.livekit import LiveKitDevelopmentAdapter
 from conftest import create_session, headers
@@ -59,16 +61,19 @@ def test_attendance_disconnect_reconnect_and_duplicate(
     sid = response.json()["id"]
     now = datetime.now(UTC)
 
-    def attendance(event_id, event_type, when):
-        return client.post(
-            f"/v1/internal/sessions/{sid}/attendance",
-            headers=headers(),
-            json={
-                "provider_event_id": event_id,
-                "user_id": str(candidate),
-                "event_type": event_type,
-                "occurred_at": when.isoformat(),
-            },
+    def attendance(event_id: str, event_type: str, when: datetime) -> httpx.Response:
+        return cast(
+            httpx.Response,
+            client.post(
+                f"/v1/internal/sessions/{sid}/attendance",
+                headers=headers(),
+                json={
+                    "provider_event_id": event_id,
+                    "user_id": str(candidate),
+                    "event_type": event_type,
+                    "occurred_at": when.isoformat(),
+                },
+            ),
         )
 
     assert attendance("join-1-" + sid, "joined", now).status_code == 200
@@ -79,7 +84,7 @@ def test_attendance_disconnect_reconnect_and_duplicate(
     assert rejoin.json()["reconnect_count"] == 1 and rejoin.json()["total_connected_seconds"] == 10
 
 
-def completed(client: TestClient, rubric: dict[str, object]):
+def completed(client: TestClient, rubric: dict[str, object]) -> tuple[str, UUID, UUID]:
     response, candidate, interviewer, _ = create_session(client, str(rubric["id"]))
     sid = response.json()["id"]
     client.post(
@@ -99,7 +104,7 @@ def completed(client: TestClient, rubric: dict[str, object]):
     return sid, candidate, interviewer
 
 
-def feedback_payload():
+def feedback_payload() -> dict[str, object]:
     return {
         "criterion_scores": [{"key": "design", "score": 8}, {"key": "communication", "score": 4}],
         "strengths": ["Clear API design"],
@@ -151,7 +156,10 @@ def test_feedback_rejected_before_completion_and_invalid_scores(
     )
     sid, _, interviewer = completed(client, rubric)
     payload = feedback_payload()
-    payload["criterion_scores"][0]["score"] = 99
+    criterion_scores = payload["criterion_scores"]
+    assert isinstance(criterion_scores, list)
+    assert isinstance(criterion_scores[0], dict)
+    criterion_scores[0]["score"] = 99
     assert (
         client.post(
             f"/v1/sessions/{sid}/feedback",

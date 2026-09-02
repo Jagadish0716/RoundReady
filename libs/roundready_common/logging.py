@@ -1,5 +1,7 @@
 import logging
 import sys
+from collections.abc import MutableMapping
+from typing import Any
 
 import structlog
 
@@ -7,8 +9,8 @@ from roundready_common.correlation import get_correlation_id
 
 
 def add_correlation_id(
-    _logger: object, _method: str, event: dict[str, object]
-) -> dict[str, object]:
+    _logger: Any, _method: str, event: MutableMapping[str, Any]
+) -> MutableMapping[str, Any]:
     event.setdefault("correlation_id", get_correlation_id())
     return event
 

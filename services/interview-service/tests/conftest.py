@@ -2,8 +2,10 @@ import os
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -100,7 +102,7 @@ def rubric(client: TestClient) -> dict[str, object]:
         },
     )
     assert result.status_code == 201
-    return result.json()
+    return cast(dict[str, object], result.json())
 
 
 def create_session(
@@ -110,7 +112,7 @@ def create_session(
     interviewer: UUID | None = None,
     event_id: UUID | None = None,
     booking_id: UUID | None = None,
-):
+) -> tuple[httpx.Response, UUID, UUID, dict[str, str]]:
     candidate = candidate or uuid4()
     interviewer = interviewer or uuid4()
     now = datetime.now(UTC)

@@ -70,12 +70,15 @@ def test_two_candidates_cannot_concurrently_book_same_slot(client: TestClient) -
     def attempt(candidate: dict[str, str], key: str) -> int:
         held = client.post(f"/v1/slots/{slot_id}/hold", headers=candidate)
         if held.status_code != 200:
-            return held.status_code
-        return client.post(
-            "/v1/bookings",
-            headers={**candidate, "Idempotency-Key": key},
-            json={"slot_id": slot_id, "hold_token": held.json()["hold_token"]},
-        ).status_code
+            return cast(int, held.status_code)
+        return cast(
+            int,
+            client.post(
+                "/v1/bookings",
+                headers={**candidate, "Idempotency-Key": key},
+                json={"slot_id": slot_id, "hold_token": held.json()["hold_token"]},
+            ).status_code,
+        )
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [
@@ -170,6 +173,23 @@ def test_failed_payment_releases_slot_for_rebooking(client: TestClient) -> None:
     second_status, second = book(client, headers(), str(slot["id"]), "failed-payment-second")
     assert failed.json()["status"] == "payment_failed"
     assert duplicate.json()["status"] == "payment_failed"
+    assert second_status == 201 and second["slot_id"] == first["slot_id"]
+
+
+def test_cancelled_booking_releases_slot_for_rebooking(client: TestClient) -> None:
+    candidate = headers()
+    slot = generate(
+        client, headers("admin"), uuid4(), datetime(2030, 1, 5, 12, tzinfo=UTC)
+    )
+    first_status, first = book(client, candidate, str(slot["id"]), "cancelled-first")
+    assert first_status == 201
+    cancelled = client.post(
+        f"/v1/bookings/{first['id']}/cancel",
+        headers=candidate,
+        json={"status": "cancelled", "reason": "candidate request"},
+    )
+    second_status, second = book(client, headers(), str(slot["id"]), "cancelled-second")
+    assert cancelled.json()["status"] == "cancelled"
     assert second_status == 201 and second["slot_id"] == first["slot_id"]
 
 
