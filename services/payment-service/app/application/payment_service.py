@@ -82,6 +82,42 @@ class PaymentService:
             )
         return payment
 
+    async def complete_development_payment(self, payment_id: UUID, candidate_id: UUID) -> Payment:
+        payment = await self.session.scalar(
+            select(Payment)
+            .where(Payment.id == payment_id, Payment.candidate_id == candidate_id)
+            .with_for_update()
+        )
+        if payment is None:
+            raise ServiceError(
+                code="payment_not_found", message="Payment was not found", status_code=404
+            )
+        if payment.amount_paise != self.price or payment.currency != "INR":
+            raise ServiceError(
+                code="payment_amount_mismatch",
+                message="Payment amount or currency is invalid",
+                status_code=409,
+            )
+        if payment.status is PaymentStatus.CAPTURED:
+            return payment
+        if payment.status is not PaymentStatus.PENDING:
+            raise ServiceError(
+                code="invalid_payment_transition",
+                message="Payment status transition is invalid",
+                status_code=409,
+            )
+        provider_payment_id = f"pay_dev_{payment.id.hex}"
+        payment.provider_payment_id = provider_payment_id
+        self._transition(
+            payment,
+            PaymentStatus.CAPTURED,
+            "development_payment_captured",
+            provider_payment_id,
+        )
+        self._event(PAYMENT_CAPTURED, payment)
+        await self.session.commit()
+        return payment
+
     async def process_webhook(
         self, event_id: str, event_type: str, payload: dict[str, object]
     ) -> tuple[bool, bool]:

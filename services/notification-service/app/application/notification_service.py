@@ -51,6 +51,12 @@ class NotificationService:
         if isinstance(whatsapp, str) and whatsapp:
             recipients.append((Channel.WHATSAPP, whatsapp))
         candidate_id = event.payload.get("candidate_id")
+        recipient_user_id: UUID | None = None
+        if isinstance(candidate_id, str):
+            try:
+                recipient_user_id = UUID(candidate_id)
+            except ValueError:
+                recipient_user_id = None
         if not recipients and isinstance(candidate_id, str) and self.resolver is not None:
             destination = await self.resolver.resolve(candidate_id, event.correlation_id)
             if destination.email:
@@ -87,6 +93,7 @@ class NotificationService:
                 event_id=event.event_id,
                 event_type=event.event_type,
                 correlation_id=event.correlation_id,
+                recipient_user_id=recipient_user_id,
                 recipient=recipient,
                 channel=channel,
                 template=template.name,

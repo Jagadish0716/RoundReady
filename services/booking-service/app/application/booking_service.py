@@ -210,6 +210,19 @@ class BookingService:
         await self.holds.release(str(slot_id), token)
         return booking
 
+    async def get_candidate_booking(self, booking_id: UUID, candidate_id: UUID) -> Booking:
+        booking = await self.session.scalar(
+            select(Booking).where(
+                Booking.id == booking_id,
+                Booking.candidate_id == candidate_id,
+            )
+        )
+        if booking is None:
+            raise ServiceError(
+                code="booking_not_found", message="Booking was not found", status_code=404
+            )
+        return booking
+
     async def transition(
         self, booking_id: UUID, target: BookingStatus, actor: UUID | None, reason: str | None = None
     ) -> Booking:

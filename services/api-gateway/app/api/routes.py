@@ -25,6 +25,7 @@ ROUTES = (
     RouteTarget("v1/booking", "booking_service_url", "/v1"),
     RouteTarget("v1/payments", "payment_service_url", "/v1/payments"),
     RouteTarget("v1/interviews", "interview_service_url", "/v1"),
+    RouteTarget("v1/notifications", "notification_service_url", "/v1/notifications"),
 )
 PUBLIC_PATHS = {
     ("POST", "v1/auth/register"),
@@ -108,11 +109,17 @@ async def proxy(
     if authorization and path.startswith("v1/auth"):
         headers["Authorization"] = authorization
     if identity:
+        identity_secret = settings.internal_identity_secret.get_secret_value()
+        if path.startswith("v1/notifications"):
+            identity_secret = (
+                settings.notification_internal_identity_secret.get_secret_value()
+                or identity_secret
+            )
         headers.update(
             {
                 "X-User-ID": str(identity.user_id),
                 "X-User-Role": identity.role.value,
-                "X-Internal-Identity-Secret": settings.internal_identity_secret.get_secret_value(),
+                "X-Internal-Identity-Secret": identity_secret,
             }
         )
     try:

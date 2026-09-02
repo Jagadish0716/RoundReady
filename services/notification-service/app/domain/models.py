@@ -52,6 +52,7 @@ class Notification(Base):
     event_id: Mapped[UUID] = mapped_column(index=True)
     event_type: Mapped[str] = mapped_column(String(128))
     correlation_id: Mapped[str] = mapped_column(String(128), index=True)
+    recipient_user_id: Mapped[UUID | None] = mapped_column(index=True)
     recipient: Mapped[str] = mapped_column(String(320))
     channel: Mapped[Channel] = mapped_column(
         Enum(Channel, name="notification_channel", values_callable=enum_values)
@@ -73,6 +74,7 @@ class Notification(Base):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class DeliveryAttempt(Base):

@@ -3,7 +3,8 @@ from typing import cast
 from uuid import UUID, uuid4
 
 import httpx
-from conftest import identity, signature
+from conftest import FAKE_PROVIDER, WEBHOOK_SECRET, identity, signature
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
@@ -193,3 +194,74 @@ def test_ownership_and_roles(client: TestClient) -> None:
         headers={**identity("admin"), "Idempotency-Key": "admin-key-001"},
     )
     assert forbidden.status_code == 403
+
+
+def test_development_completion_is_owned_idempotent_and_authoritative(
+    client: TestClient, postgres_url: str
+) -> None:
+    from app.config import get_settings
+    from app.dependencies import get_payment_provider
+    from app.infrastructure.development import DevelopmentPaymentProvider
+
+    app = cast(FastAPI, client.app)
+    settings = get_settings().model_copy(
+        update={"environment": "test", "payment_provider": "development"}
+    )
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_payment_provider] = lambda: DevelopmentPaymentProvider(
+        WEBHOOK_SECRET
+    )
+    try:
+        owner = uuid4()
+        payment = create_payment(client, "development-complete-owner", owner).json()
+        endpoint = f"/v1/payments/{payment['id']}/development/complete"
+        unrelated = client.post(endpoint, headers=identity())
+        first = client.post(endpoint, headers=identity(user_id=owner), json={"amount_paise": 1})
+        second = client.post(endpoint, headers=identity(user_id=owner))
+
+        assert unrelated.status_code == 404
+        assert first.status_code == 200 and second.status_code == 200
+        assert first.json()["status"] == "captured"
+        assert first.json()["amount_paise"] == 20000 and first.json()["currency"] == "INR"
+        assert first.json()["id"] == second.json()["id"]
+        serialized = json.dumps(first.json())
+        assert "secret" not in serialized and "signature" not in serialized
+
+        engine = create_engine(postgres_url)
+        with engine.connect() as connection:
+            assert (
+                connection.scalar(
+                    text(
+                        "select count(*) from outbox_events "
+                        "where event_type='payment.captured.v1' and payload->>'payment_id'=:id"
+                    ),
+                    {"id": payment["id"]},
+                )
+                == 1
+            )
+        engine.dispose()
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+        app.dependency_overrides[get_payment_provider] = lambda: FAKE_PROVIDER
+
+
+def test_development_completion_is_hidden_in_production(client: TestClient) -> None:
+    from app.config import get_settings
+    from app.dependencies import get_payment_provider
+    from app.infrastructure.development import DevelopmentPaymentProvider
+
+    app = cast(FastAPI, client.app)
+    settings = get_settings().model_copy(
+        update={"environment": "production", "payment_provider": "development"}
+    )
+    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[get_payment_provider] = lambda: DevelopmentPaymentProvider(
+        WEBHOOK_SECRET
+    )
+    try:
+        response = client.post(f"/v1/payments/{uuid4()}/development/complete", headers=identity())
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "development_payment_disabled"
+    finally:
+        app.dependency_overrides.pop(get_settings, None)
+        app.dependency_overrides[get_payment_provider] = lambda: FAKE_PROVIDER

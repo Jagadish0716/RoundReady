@@ -207,3 +207,53 @@ async def test_correlation_id_and_provider_reference_persist(client: TestClient)
         and record.provider_reference is not None
         and records[0].sent_at is not None
     )
+
+
+@pytest.mark.asyncio
+async def test_owned_notification_list_and_idempotent_read(client: TestClient) -> None:
+    owner = uuid4()
+    other = uuid4()
+    value = event(recipient_whatsapp=None, candidate_id=str(owner))
+    records = await consume(value)
+    headers = {
+        "X-User-ID": str(owner),
+        "X-User-Role": "candidate",
+        "X-Internal-Identity-Secret": "internal-test-secret",
+    }
+
+    listed = client.get("/v1/notifications/me", headers=headers)
+    assert listed.status_code == 200
+    assert len(listed.json()) == 1
+    body = listed.json()[0]
+    assert body["id"] == str(records[0].id)
+    assert body["read_at"] is None
+    assert "recipient" not in body and "provider_reference" not in body
+
+    marked = client.patch(f"/v1/notifications/{records[0].id}/read", headers=headers)
+    repeated = client.patch(f"/v1/notifications/{records[0].id}/read", headers=headers)
+    assert marked.status_code == 200
+    assert repeated.status_code == 200
+    assert marked.json()["read_at"] == repeated.json()["read_at"]
+
+    other_headers = {**headers, "X-User-ID": str(other)}
+    assert client.get("/v1/notifications/me", headers=other_headers).json() == []
+    assert (
+        client.patch(f"/v1/notifications/{records[0].id}/read", headers=other_headers).status_code
+        == 404
+    )
+
+
+def test_notification_api_rejects_untrusted_and_admin_identity(client: TestClient) -> None:
+    assert client.get("/v1/notifications/me").status_code == 401
+    bad_secret = {
+        "X-User-ID": str(uuid4()),
+        "X-User-Role": "candidate",
+        "X-Internal-Identity-Secret": "attacker",
+    }
+    assert client.get("/v1/notifications/me", headers=bad_secret).status_code == 401
+    admin = {
+        "X-User-ID": str(uuid4()),
+        "X-User-Role": "admin",
+        "X-Internal-Identity-Secret": "internal-test-secret",
+    }
+    assert client.get("/v1/notifications/me", headers=admin).status_code == 403

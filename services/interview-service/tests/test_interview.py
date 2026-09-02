@@ -54,6 +54,41 @@ def test_only_assigned_participants_receive_tokens(
     )
 
 
+def test_participant_session_discovery_rubric_and_interviewer_lifecycle(
+    client: TestClient, rubric: dict[str, object]
+) -> None:
+    response, candidate, interviewer, _ = create_session(client, str(rubric["id"]))
+    session_id = response.json()["id"]
+
+    candidate_list = client.get("/v1/sessions", headers=headers("candidate", candidate))
+    interviewer_list = client.get("/v1/sessions", headers=headers("interviewer", interviewer))
+    unrelated_list = client.get("/v1/sessions", headers=headers("candidate"))
+    rubric_response = client.get(
+        f"/v1/sessions/{session_id}/rubric", headers=headers("interviewer", interviewer)
+    )
+    candidate_start = client.post(
+        f"/v1/sessions/{session_id}/start", headers=headers("candidate", candidate)
+    )
+    unrelated_start = client.post(
+        f"/v1/sessions/{session_id}/start", headers=headers("interviewer")
+    )
+    started = client.post(
+        f"/v1/sessions/{session_id}/start", headers=headers("interviewer", interviewer)
+    )
+    completed = client.post(
+        f"/v1/sessions/{session_id}/complete", headers=headers("interviewer", interviewer)
+    )
+
+    assert candidate_list.status_code == 200 and candidate_list.json()[0]["id"] == session_id
+    assert interviewer_list.status_code == 200 and interviewer_list.json()[0]["id"] == session_id
+    assert unrelated_list.status_code == 200 and unrelated_list.json() == []
+    assert rubric_response.status_code == 200 and rubric_response.json()["id"] == str(rubric["id"])
+    assert candidate_start.status_code == 403
+    assert unrelated_start.status_code == 404
+    assert started.json()["status"] == "in_progress"
+    assert completed.json()["status"] == "feedback_pending"
+
+
 def test_attendance_disconnect_reconnect_and_duplicate(
     client: TestClient, rubric: dict[str, object]
 ) -> None:

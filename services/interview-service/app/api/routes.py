@@ -21,7 +21,13 @@ from app.dependencies import (
     Provider,
     Role,
 )
-from app.domain.models import FeedbackReport, InterviewSession, ParticipantAttendance, Rubric
+from app.domain.models import (
+    FeedbackReport,
+    InterviewSession,
+    ParticipantAttendance,
+    Rubric,
+    SessionStatus,
+)
 from app.domain.providers import ParticipantAccess
 from fastapi import APIRouter
 from roundready_common.errors import ServiceError
@@ -66,6 +72,27 @@ async def get_session(
     return await service(db, provider, settings).get_session(session_id, identity)
 
 
+@router.get("/sessions", response_model=list[SessionResponse])
+async def list_sessions(
+    identity: AuthenticatedIdentity,
+    db: DatabaseSession,
+    provider: Provider,
+    settings: AppSettings,
+) -> list[InterviewSession]:
+    return await service(db, provider, settings).list_sessions(identity)
+
+
+@router.get("/sessions/{session_id}/rubric", response_model=RubricResponse)
+async def get_session_rubric(
+    session_id: UUID,
+    identity: AuthenticatedIdentity,
+    db: DatabaseSession,
+    provider: Provider,
+    settings: AppSettings,
+) -> Rubric:
+    return await service(db, provider, settings).get_rubric_for_session(session_id, identity)
+
+
 @router.post("/sessions/{session_id}/join", response_model=JoinResponse)
 async def join(
     session_id: UUID,
@@ -75,6 +102,44 @@ async def join(
     settings: AppSettings,
 ) -> ParticipantAccess:
     return await service(db, provider, settings).join(session_id, identity)
+
+
+@router.post("/sessions/{session_id}/start", response_model=SessionResponse)
+async def start(
+    session_id: UUID,
+    identity: AuthenticatedIdentity,
+    db: DatabaseSession,
+    provider: Provider,
+    settings: AppSettings,
+) -> InterviewSession:
+    if identity.role is not Role.INTERVIEWER:
+        raise ServiceError(
+            code="interviewer_role_required",
+            message="Interviewer role is required",
+            status_code=403,
+        )
+    return await service(db, provider, settings).transition_by_interviewer(
+        session_id, identity.user_id, SessionStatus.IN_PROGRESS
+    )
+
+
+@router.post("/sessions/{session_id}/complete", response_model=SessionResponse)
+async def complete(
+    session_id: UUID,
+    identity: AuthenticatedIdentity,
+    db: DatabaseSession,
+    provider: Provider,
+    settings: AppSettings,
+) -> InterviewSession:
+    if identity.role is not Role.INTERVIEWER:
+        raise ServiceError(
+            code="interviewer_role_required",
+            message="Interviewer role is required",
+            status_code=403,
+        )
+    return await service(db, provider, settings).transition_by_interviewer(
+        session_id, identity.user_id, SessionStatus.COMPLETED
+    )
 
 
 @router.post("/internal/sessions/{session_id}/attendance", response_model=AttendanceResponse)

@@ -103,6 +103,25 @@ def test_idempotent_booking_creation(client: TestClient) -> None:
     assert first.json()["id"] == second.json()["id"] and first.json()["amount_paise"] == 20000
 
 
+def test_candidate_reads_only_own_booking(client: TestClient) -> None:
+    owner = headers()
+    slot = generate(client, headers("admin"), uuid4(), datetime(2030, 1, 2, 11, tzinfo=UTC))
+    status, booking = book(client, owner, str(slot["id"]), "owned-booking-read")
+    assert status == 201
+
+    own = client.get(f"/v1/bookings/{booking['id']}", headers=owner)
+    unrelated = client.get(f"/v1/bookings/{booking['id']}", headers=headers())
+    unauthenticated = client.get(f"/v1/bookings/{booking['id']}")
+    wrong_role = client.get(f"/v1/bookings/{booking['id']}", headers=headers("interviewer"))
+
+    assert own.status_code == 200
+    assert own.json()["candidate_id"] == owner["X-User-ID"]
+    assert own.json()["amount_paise"] == 20000 and own.json()["currency"] == "INR"
+    assert unrelated.status_code == 404
+    assert unauthenticated.status_code == 401
+    assert wrong_role.status_code == 403
+
+
 def test_candidate_overlap_rejected_by_database(client: TestClient) -> None:
     candidate = headers()
     admin = headers("admin")
@@ -178,9 +197,7 @@ def test_failed_payment_releases_slot_for_rebooking(client: TestClient) -> None:
 
 def test_cancelled_booking_releases_slot_for_rebooking(client: TestClient) -> None:
     candidate = headers()
-    slot = generate(
-        client, headers("admin"), uuid4(), datetime(2030, 1, 5, 12, tzinfo=UTC)
-    )
+    slot = generate(client, headers("admin"), uuid4(), datetime(2030, 1, 5, 12, tzinfo=UTC))
     first_status, first = book(client, candidate, str(slot["id"]), "cancelled-first")
     assert first_status == 201
     cancelled = client.post(

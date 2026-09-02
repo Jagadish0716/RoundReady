@@ -6,3 +6,7 @@ export function apiBaseUrl(): string {
     "",
   );
 }
+
+export function developmentPaymentsEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_ENABLE_DEVELOPMENT_PAYMENTS === "true";
+}

@@ -58,6 +58,29 @@ async def get_payment(
     )
 
 
+@router.post("/payments/{payment_id}/development/complete", response_model=PaymentResponse)
+async def complete_development_payment(
+    payment_id: UUID,
+    identity: CandidateIdentity,
+    session: DatabaseSession,
+    provider: Provider,
+    settings: AppSettings,
+) -> Payment:
+    if (
+        settings.environment not in {"local", "development", "test"}
+        or settings.payment_provider != "development"
+        or provider.name != "development"
+    ):
+        raise ServiceError(
+            code="development_payment_disabled",
+            message="Development payment completion is unavailable",
+            status_code=404,
+        )
+    return await service(session, provider, settings).complete_development_payment(
+        payment_id, identity.user_id
+    )
+
+
 @router.post("/admin/payments/{payment_id}/refunds", response_model=RefundResponse, status_code=201)
 async def refund(
     payment_id: UUID,

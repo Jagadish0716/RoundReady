@@ -115,6 +115,52 @@ class InterviewService:
             )
         return item
 
+    async def list_sessions(self, identity: Identity) -> list[InterviewSession]:
+        if identity.role is Role.CANDIDATE:
+            condition = InterviewSession.candidate_id == identity.user_id
+        elif identity.role is Role.INTERVIEWER:
+            condition = InterviewSession.interviewer_id == identity.user_id
+        else:
+            raise ServiceError(
+                code="participant_role_required",
+                message="Candidate or interviewer role is required",
+                status_code=403,
+            )
+        return list(
+            (
+                await self.db.scalars(
+                    select(InterviewSession)
+                    .where(condition)
+                    .order_by(InterviewSession.scheduled_start)
+                )
+            ).all()
+        )
+
+    async def get_rubric_for_session(self, session_id: UUID, identity: Identity) -> Rubric:
+        item = await self.get_session(session_id, identity)
+        rubric = await self.db.get(Rubric, item.rubric_id)
+        if rubric is None:
+            raise ServiceError(
+                code="rubric_not_found", message="Rubric was not found", status_code=404
+            )
+        return rubric
+
+    async def transition_by_interviewer(
+        self, session_id: UUID, interviewer_id: UUID, target: SessionStatus
+    ) -> InterviewSession:
+        item = await self.db.get(InterviewSession, session_id)
+        if item is None or item.interviewer_id != interviewer_id:
+            raise ServiceError(
+                code="session_not_found", message="Interview session was not found", status_code=404
+            )
+        if target not in {SessionStatus.IN_PROGRESS, SessionStatus.COMPLETED}:
+            raise ServiceError(
+                code="invalid_session_transition",
+                message="Interviewer session transition is invalid",
+                status_code=409,
+            )
+        return await self.transition(session_id, target)
+
     async def join(self, session_id: UUID, identity: Identity) -> ParticipantAccess:
         item = await self.get_session(session_id, identity)
         if identity.role not in {Role.CANDIDATE, Role.INTERVIEWER}:
@@ -227,6 +273,7 @@ class InterviewService:
             )
         allowed = {
             SessionStatus.READY: {
+                SessionStatus.IN_PROGRESS,
                 SessionStatus.CANDIDATE_NO_SHOW,
                 SessionStatus.INTERVIEWER_NO_SHOW,
                 SessionStatus.TECHNICAL_FAILURE,
@@ -243,6 +290,7 @@ class InterviewService:
         item.status = target
         now = datetime.now(UTC)
         event = {
+            SessionStatus.IN_PROGRESS: INTERVIEW_STARTED,
             SessionStatus.COMPLETED: INTERVIEW_COMPLETED,
             SessionStatus.CANDIDATE_NO_SHOW: CANDIDATE_NO_SHOW,
             SessionStatus.INTERVIEWER_NO_SHOW: INTERVIEWER_NO_SHOW,
@@ -252,6 +300,8 @@ class InterviewService:
             item.actual_end = now
             if item.actual_start:
                 item.total_duration_seconds = max(0, int((now - item.actual_start).total_seconds()))
+        if target is SessionStatus.IN_PROGRESS:
+            item.actual_start = now
         if event:
             self._event(event, item)
         if target is SessionStatus.COMPLETED:

@@ -51,6 +51,7 @@ def gateway() -> Iterator[tuple[TestClient, list[httpx.Request], FakeLimiter]]:
 
     settings = Settings(
         internal_identity_secret="internal-test-secret",
+        notification_internal_identity_secret="notification-test-secret",
         rate_limit_requests=2,
         rate_limit_window_seconds=60,
     )
@@ -136,6 +137,21 @@ def test_internal_routes_are_not_public(
         "/v1/booking/internal/slots/generate", headers={"Authorization": "Bearer valid-token"}
     )
     assert response.status_code == 404
+
+
+def test_notification_routes_require_auth_and_replace_identity(
+    gateway: tuple[TestClient, list[httpx.Request], FakeLimiter],
+) -> None:
+    client, requests, _ = gateway
+    assert client.get("/v1/notifications/me").status_code == 401
+    response = client.get(
+        "/v1/notifications/me",
+        headers={"Authorization": "Bearer valid-token", "X-User-ID": str(uuid4())},
+    )
+    assert response.status_code == 200
+    assert response.json()["path"] == "/v1/notifications/me"
+    assert response.json()["user_id"] == str(USER_ID)
+    assert requests[-1].headers["X-Internal-Identity-Secret"] == "notification-test-secret"
 
 
 def test_rate_limit_returns_429(

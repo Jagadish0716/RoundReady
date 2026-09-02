@@ -85,6 +85,20 @@ async def create(
     return BookingResponse.model_validate(value)
 
 
+@router.get("/bookings/{booking_id}", response_model=BookingResponse)
+async def get_candidate_booking(
+    booking_id: UUID,
+    identity: CandidateIdentity,
+    session: DatabaseSession,
+    holds: HoldStore,
+    settings: AppSettings,
+) -> BookingResponse:
+    value = await service(session, holds, settings).get_candidate_booking(
+        booking_id, identity.user_id
+    )
+    return BookingResponse.model_validate(value)
+
+
 @router.post("/admin/bookings/{booking_id}/transition", response_model=BookingResponse)
 async def transition(
     booking_id: UUID,

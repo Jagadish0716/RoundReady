@@ -48,6 +48,7 @@ def client(postgres_url: str) -> Iterator[TestClient]:
             "MAX_DELIVERY_ATTEMPTS": "3",
             "RETRY_BASE_SECONDS": "1",
             "RETRY_MAX_SECONDS": "4",
+            "INTERNAL_SERVICE_SECRET": "internal-test-secret",
         }
     )
     from app.config import get_settings

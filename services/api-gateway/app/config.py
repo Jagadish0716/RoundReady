@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     internal_identity_secret: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_IDENTITY_SECRET"
     )
+    notification_internal_identity_secret: SecretStr = Field(
+        default=SecretStr(""), validation_alias="NOTIFICATION_INTERNAL_IDENTITY_SECRET"
+    )
     cors_origins: list[str] = Field(default_factory=list, validation_alias="CORS_ORIGINS")
     rate_limit_requests: int = Field(default=60, ge=1, validation_alias="RATE_LIMIT_REQUESTS")
     rate_limit_window_seconds: int = Field(
