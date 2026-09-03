@@ -28,5 +28,10 @@ def configure_telemetry(
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 
         HTTPXClientInstrumentor().instrument()
+
+        async def shutdown_telemetry() -> None:
+            provider.shutdown()
+
+        app.router.on_shutdown.append(shutdown_telemetry)
     except Exception as exc:
         logging.getLogger(__name__).warning("telemetry_setup_failed", exc_info=exc)

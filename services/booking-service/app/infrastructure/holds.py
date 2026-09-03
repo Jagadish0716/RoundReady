@@ -5,6 +5,7 @@ from typing import Any, cast
 from redis.asyncio import Redis
 from redis.exceptions import RedisError
 from roundready_common.errors import ServiceError
+from roundready_common.metrics import record_redis
 
 
 class RedisHoldStore:
@@ -16,8 +17,11 @@ class RedisHoldStore:
         try:
             result = await self._redis.set(self.key(slot_id), token, nx=True, ex=self._ttl_seconds)
         except RedisError as exc:
+            record_redis("hold_acquire", "failure")
             raise self._unavailable() from exc
-        return bool(result)
+        acquired = bool(result)
+        record_redis("hold_acquire", "success" if acquired else "contention")
+        return acquired
 
     async def matches(self, slot_id: str, token: str) -> bool:
         try:

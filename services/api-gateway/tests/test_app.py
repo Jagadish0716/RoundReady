@@ -75,6 +75,21 @@ def test_health_and_correlation_id(
     assert response.headers["Permissions-Policy"] == "camera=(), microphone=(), geolocation=()"
 
 
+def test_metrics_endpoint_is_available_and_omits_request_ids(
+    gateway: tuple[TestClient, list[httpx.Request], FakeLimiter],
+) -> None:
+    client, _, _ = gateway
+    client.post(
+        "/v1/auth/login", json={"email": "candidate@example.in", "password": "test-password"}
+    )
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    assert "roundready_http_requests_total" in response.text
+    assert 'route="/{path:path}"' in response.text
+    assert "user_id" not in response.text
+
+
 def test_invalid_correlation_id_is_replaced_and_propagated(
     gateway: tuple[TestClient, list[httpx.Request], FakeLimiter],
 ) -> None:

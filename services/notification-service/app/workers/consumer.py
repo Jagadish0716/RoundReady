@@ -6,6 +6,7 @@ import structlog
 from aio_pika.abc import AbstractIncomingMessage
 from roundready_common.logging import configure_logging
 from roundready_common.messaging import connect_rabbit, decode_event
+from roundready_common.metrics import record_broker
 
 from app.application.notification_service import NotificationService
 from app.config import Settings, get_settings
@@ -118,8 +119,10 @@ async def run() -> None:
                 )
                 await asyncio.sleep(1)
                 await message.nack(requeue=True)
+                record_broker("consume", "requeue")
                 return
             await message.reject(requeue=False)
+            record_broker("consume", "dlq")
             logger.error(
                 "notification_event_rejected",
                 event_id=str(event.event_id),
@@ -129,6 +132,7 @@ async def run() -> None:
             )
             return
         await message.ack()
+        record_broker("consume", "success")
         logger.info(
             "notification_event_consumed",
             event_id=str(event.event_id),

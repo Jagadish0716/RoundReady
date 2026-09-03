@@ -3,6 +3,7 @@ from datetime import UTC, datetime
 from app.domain.models import OutboxEvent
 from roundready_common.events import EventEnvelope
 from roundready_common.messaging import RabbitEventPublisher
+from roundready_common.metrics import record_outbox
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,9 +36,11 @@ async def publish_pending_events(
         except Exception as exc:
             record.last_error = type(exc).__name__
             await session.commit()
+            record_outbox("failure")
             break
         record.published_at = datetime.now(UTC)
         record.last_error = None
         await session.commit()
         published += 1
+        record_outbox("success")
     return published

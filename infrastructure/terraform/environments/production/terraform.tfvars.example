@@ -1,0 +1,20 @@
+project_name = "roundready"
+environment  = "production"
+aws_region   = "REQUIRED"
+vpc_cidr     = "10.30.0.0/16"
+az_count     = 2
+nat_gateway_mode = "one_per_az"
+enable_flow_logs = true
+kubernetes_version = "1.33"
+node_instance_types = ["t3.medium"]
+node_min_size = 2
+node_desired_size = 2
+node_max_size = 6
+node_disk_size = 50
+enable_public_eks_endpoint = false
+eks_public_access_cidrs = []
+enable_eks_control_plane_logs = true
+
+common_tags = {
+  CostCenter = "production"
+}

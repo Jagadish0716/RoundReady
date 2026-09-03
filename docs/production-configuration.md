@@ -89,6 +89,23 @@ cannot activate in production. The browser receives no JWT signing material, int
 credentials, database/Redis/RabbitMQ credentials, webhook secret, LiveKit secret, or messaging
 provider secret; it communicates only with the configured API gateway.
 
+Prometheus metrics are available at `/metrics` for each backend service. In production this
+endpoint must be restricted to the internal monitoring network at the deployment edge; it is
+not a public API. Development scraping remains available locally. HTTP metrics use only method,
+normalized route template, and status class labels, never user, booking, payment, email, phone,
+or raw URL values. Health and readiness probes are excluded to avoid scrape noise.
+
+Minimum dashboards should show request rate, 5xx rate, latency, readiness, outbox backlog and
+publish failures, consumer failures/requeues/DLQ activity, plus bookings, payment outcomes,
+completed interviews, feedback submissions, and notification failures. Application metrics do
+not replace PostgreSQL, Redis, RabbitMQ, host, or container exporters.
+
+Initial alert guidance, to tune after real traffic: readiness failing for 5 minutes; 5xx above
+5% for 10 minutes; p95 API latency above 1 second for 10 minutes; outbox backlog growing for
+15 minutes; sustained broker publish/consumer failures or requeues for 10 minutes; any DLQ
+activity; payment failures above 10% for 10 minutes; and notification failures above 10% for
+10 minutes. These are starting thresholds, not paging integrations.
+
 ## Intentional production provider blockers
 
 Razorpay, LiveKit, Resend email, and Meta WhatsApp Cloud API production adapters are available

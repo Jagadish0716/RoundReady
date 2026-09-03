@@ -1,3 +1,5 @@
+from typing import Any
+
 import structlog
 from roundready_common.correlation import valid_correlation_id
 from roundready_common.logging import (
@@ -39,7 +41,7 @@ def test_trace_context_is_optional_when_telemetry_is_disabled() -> None:
     assert add_trace_context(object(), "info", event) == event
 
 
-def test_production_logs_are_json_and_redact_sensitive_fields(capsys) -> None:
+def test_production_logs_are_json_and_redact_sensitive_fields(capsys: Any) -> None:
     configure_logging("INFO", "gateway", "production")
     structlog.get_logger().info(
         "request_finished", correlation_id="corr-1", status_code=200, password="secret"

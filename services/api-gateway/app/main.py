@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 from roundready_common.correlation import CorrelationIdMiddleware
 from roundready_common.http import install_exception_handlers
 from roundready_common.logging import RequestLoggingMiddleware, configure_logging
+from roundready_common.metrics import MetricsMiddleware, metrics_endpoint
 from roundready_common.telemetry import configure_telemetry
 
 from app.api.health import router as health_router
@@ -50,6 +51,7 @@ def create_app() -> FastAPI:
         return add_security_headers(response)
 
     app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(MetricsMiddleware)
     app.add_middleware(CorrelationIdMiddleware)
     if settings.cors_origins:
         app.add_middleware(
@@ -60,6 +62,7 @@ def create_app() -> FastAPI:
             allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Correlation-ID"],
         )
     install_exception_handlers(app)
+    app.add_api_route("/metrics", metrics_endpoint, methods=["GET"], include_in_schema=False)
     app.include_router(health_router)
     app.include_router(api_router)
     configure_telemetry(app, settings.service_name, settings.telemetry_enabled)
