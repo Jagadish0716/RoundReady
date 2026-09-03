@@ -26,3 +26,5 @@ Run all checks with `bash scripts/check.sh`. See [architecture](docs/architectur
 [API errors](docs/api-errors.md), and [events](docs/events.md).
 Infrastructure lifecycle and inspection commands are in the
 [local development guide](docs/local-development.md).
+Production environment requirements and current provider blockers are documented in the
+[production configuration guide](docs/production-configuration.md).

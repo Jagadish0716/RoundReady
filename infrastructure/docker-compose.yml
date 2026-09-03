@@ -1,3 +1,4 @@
+# Local development only. This file deliberately pins every application to development mode.
 name: roundready-local
 
 services:
@@ -101,6 +102,7 @@ services:
     restart: unless-stopped
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     environment: &auth-environment
+      ENVIRONMENT: development
       AUTH_DATABASE_URL: postgresql+asyncpg://${AUTH_DB_USER:?}:${AUTH_DB_PASSWORD:?}@postgres:5432/${AUTH_DB_NAME:-roundready_auth}
       JWT_SIGNING_KEY: ${JWT_SIGNING_KEY:?Set JWT_SIGNING_KEY in .env}
       JWT_ISSUER: ${JWT_ISSUER:-roundready-auth}
@@ -121,6 +123,7 @@ services:
     restart: unless-stopped
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     environment:
+      ENVIRONMENT: development
       USER_DATABASE_URL: postgresql+asyncpg://${USER_DB_USER:?}:${USER_DB_PASSWORD:?}@postgres:5432/${USER_DB_NAME:-roundready_user}
       INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?Set INTERNAL_IDENTITY_SECRET in .env}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?Set INTERNAL_SERVICE_SECRET in .env}
@@ -134,6 +137,7 @@ services:
     restart: unless-stopped
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     environment: &interviewer-environment
+      ENVIRONMENT: development
       INTERVIEWER_DATABASE_URL: postgresql+asyncpg://${INTERVIEWER_DB_USER:?}:${INTERVIEWER_DB_PASSWORD:?}@postgres:5432/${INTERVIEWER_DB_NAME:-roundready_interviewer}
       INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
@@ -147,6 +151,7 @@ services:
     restart: unless-stopped
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     environment: &booking-environment
+      ENVIRONMENT: development
       BOOKING_DATABASE_URL: postgresql+asyncpg://${BOOKING_DB_USER:?}:${BOOKING_DB_PASSWORD:?}@postgres:5432/${BOOKING_DB_NAME:-roundready_booking}
       BOOKING_REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379/2
       INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
@@ -161,6 +166,7 @@ services:
     restart: unless-stopped
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     environment: &payment-environment
+      ENVIRONMENT: development
       PAYMENT_DATABASE_URL: postgresql+asyncpg://${PAYMENT_DB_USER:?}:${PAYMENT_DB_PASSWORD:?}@postgres:5432/${PAYMENT_DB_NAME:-roundready_payment}
       INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
@@ -179,6 +185,7 @@ services:
     restart: unless-stopped
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     environment: &interview-environment
+      ENVIRONMENT: development
       INTERVIEW_DATABASE_URL: postgresql+asyncpg://${INTERVIEW_DB_USER:?}:${INTERVIEW_DB_PASSWORD:?}@postgres:5432/${INTERVIEW_DB_NAME:-roundready_interview}
       INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
@@ -197,6 +204,7 @@ services:
     restart: unless-stopped
     command: ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
     environment: &notification-environment
+      ENVIRONMENT: development
       NOTIFICATION_DATABASE_URL: postgresql+asyncpg://${NOTIFICATION_DB_USER:?}:${NOTIFICATION_DB_PASSWORD:?}@postgres:5432/${NOTIFICATION_DB_NAME:-roundready_notification}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
       USER_SERVICE_URL: http://user-service:8000
@@ -210,6 +218,7 @@ services:
     container_name: roundready-api-gateway
     restart: unless-stopped
     environment:
+      ENVIRONMENT: development
       REDIS_URL: redis://:${REDIS_PASSWORD:?}@redis:6379/0
       AUTH_SERVICE_URL: http://auth-service:8000
       USER_SERVICE_URL: http://user-service:8000

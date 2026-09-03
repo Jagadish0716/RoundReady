@@ -13,15 +13,39 @@ from app.domain.models import Channel
 from app.domain.providers import NotificationProvider
 from app.domain.templates import supported_event_types
 from app.infrastructure.database import session_factory
-from app.infrastructure.providers import DevelopmentEmailProvider, DevelopmentWhatsAppProvider
+from app.infrastructure.providers import (
+    DevelopmentEmailProvider,
+    DevelopmentWhatsAppProvider,
+    MetaWhatsAppProvider,
+    ResendEmailProvider,
+)
 from app.infrastructure.recipients import UserServiceRecipientResolver
 
 
-def providers() -> dict[Channel, NotificationProvider]:
-    return {
-        Channel.EMAIL: DevelopmentEmailProvider(),
-        Channel.WHATSAPP: DevelopmentWhatsAppProvider(),
-    }
+def providers(settings: Settings) -> dict[Channel, NotificationProvider]:
+    email: NotificationProvider
+    whatsapp: NotificationProvider
+    if settings.email_provider == "development":
+        email = DevelopmentEmailProvider()
+    else:
+        email = ResendEmailProvider(
+            settings.resend_api_base_url,
+            settings.resend_api_key.get_secret_value(),
+            settings.email_from_address,
+            settings.provider_timeout_seconds,
+        )
+    if settings.whatsapp_provider == "development":
+        whatsapp = DevelopmentWhatsAppProvider()
+    else:
+        whatsapp = MetaWhatsAppProvider(
+            settings.whatsapp_api_base_url,
+            settings.whatsapp_access_token.get_secret_value(),
+            settings.whatsapp_phone_number_id,
+            settings.whatsapp_template_name,
+            settings.whatsapp_template_language,
+            settings.provider_timeout_seconds,
+        )
+    return {Channel.EMAIL: email, Channel.WHATSAPP: whatsapp}
 
 
 def retryable_recipient_error(exc: Exception) -> bool:
@@ -35,7 +59,7 @@ async def retry_loop(settings: Settings) -> None:
     while True:
         try:
             async with session_factory() as session:
-                sent = await NotificationService(session, providers(), settings).retry_due()
+                sent = await NotificationService(session, providers(settings), settings).retry_due()
             if sent:
                 logger.info("notification_retry_batch", sent=sent)
         except Exception as exc:
@@ -80,7 +104,9 @@ async def run() -> None:
                     settings.user_service_url,
                     settings.internal_service_secret.get_secret_value(),
                 )
-                await NotificationService(session, providers(), settings, resolver).consume(event)
+                await NotificationService(session, providers(settings), settings, resolver).consume(
+                    event
+                )
         except Exception as exc:
             if retryable_recipient_error(exc):
                 logger.warning(

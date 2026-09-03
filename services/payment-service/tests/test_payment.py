@@ -3,6 +3,7 @@ from typing import cast
 from uuid import UUID, uuid4
 
 import httpx
+from app.domain.providers import ProviderOrder, ProviderRefund
 from conftest import FAKE_PROVIDER, WEBHOOK_SECRET, identity, signature
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -91,18 +92,35 @@ def test_invalid_signature_is_rejected(client: TestClient) -> None:
     assert response.status_code == 401
 
 
-def test_capture_and_duplicate_webhook(client: TestClient) -> None:
+def test_capture_and_duplicate_webhook(client: TestClient, postgres_url: str) -> None:
     payment = create_payment(client, "capture-key-001").json()
     first = webhook(client, "evt-captured", "payment.captured", payment["provider_order_id"])
     second = webhook(client, "evt-captured", "payment.captured", payment["provider_order_id"])
+    replay = webhook(
+        client, "evt-captured-replay", "payment.captured", payment["provider_order_id"]
+    )
     assert first.status_code == 200 and first.json()["duplicate"] is False
     assert second.status_code == 200 and second.json()["duplicate"] is True
+    assert replay.status_code == 200 and replay.json()["duplicate"] is False
     result = client.get(
         f"/v1/payments/{payment['id']}", headers=identity(user_id=payment.get("candidate_id"))
     )
     # Candidate lookup is separately ownership protected; admin can inspect the resulting state.
     result = client.get(f"/v1/payments/{payment['id']}", headers=identity("admin"))
     assert result.json()["status"] == "captured"
+    engine = create_engine(postgres_url)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text(
+                    "select count(*) from outbox_events "
+                    "where event_type='payment.captured.v1' and payload->>'payment_id'=:id"
+                ),
+                {"id": payment["id"]},
+            )
+            == 1
+        )
+    engine.dispose()
 
 
 def test_failure_and_unexpected_event(client: TestClient) -> None:
@@ -171,12 +189,48 @@ def test_persistence_and_database_constraints(client: TestClient, postgres_url: 
         )
         assert (
             connection.scalar(
+                text("select provider_order_id from payments where id=:id"), {"id": payment["id"]}
+            )
+            == "order_persist-key-001"
+        )
+        assert (
+            connection.scalar(
                 text("select count(*) from payment_transactions where payment_id=:id"),
                 {"id": payment["id"]},
             )
             == 2
         )
     engine.dispose()
+
+
+def test_provider_failure_returns_controlled_error(client: TestClient) -> None:
+    from app.dependencies import get_payment_provider
+
+    class FailingProvider:
+        name = "razorpay"
+
+        async def create_order(
+            self, *, amount_paise: int, currency: str, idempotency_key: str
+        ) -> ProviderOrder:
+            raise httpx.ConnectTimeout("sensitive upstream detail")
+
+        def verify_webhook(self, body: bytes, signature: str) -> bool:
+            return False
+
+        async def refund(
+            self, *, provider_payment_id: str, amount_paise: int, idempotency_key: str
+        ) -> ProviderRefund:
+            raise httpx.ConnectTimeout("sensitive upstream detail")
+
+    app = cast(FastAPI, client.app)
+    app.dependency_overrides[get_payment_provider] = lambda: FailingProvider()
+    try:
+        response = create_payment(client, "provider-timeout")
+        assert response.status_code == 502
+        assert response.json()["error"]["code"] == "provider_error"
+        assert "sensitive upstream detail" not in response.text
+    finally:
+        app.dependency_overrides[get_payment_provider] = lambda: FAKE_PROVIDER
 
 
 def test_ownership_and_roles(client: TestClient) -> None:

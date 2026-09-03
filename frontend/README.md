@@ -11,6 +11,9 @@ npm run dev
 ```
 
 `NEXT_PUBLIC_API_BASE_URL` must point to the RoundReady API gateway (locally, `http://127.0.0.1:8000`). Browser code must never call an individual microservice.
+Production builds require an explicit HTTPS gateway URL and must not enable
+`NEXT_PUBLIC_ENABLE_DEVELOPMENT_PAYMENTS`. See the repository
+[production configuration guide](../docs/production-configuration.md).
 
 Public routes are `/`, `/login`, and `/register`. `/candidate`, `/interviewer`, and `/admin` are protected role placeholders.
 

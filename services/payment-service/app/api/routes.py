@@ -67,7 +67,7 @@ async def complete_development_payment(
     settings: AppSettings,
 ) -> Payment:
     if (
-        settings.environment not in {"local", "development", "test"}
+        settings.environment not in {"development", "test"}
         or settings.payment_provider != "development"
         or provider.name != "development"
     ):

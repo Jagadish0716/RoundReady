@@ -12,7 +12,7 @@ from app.config import Settings, get_settings
 from app.domain.providers import VideoProvider
 from app.infrastructure.database import get_db_session
 from app.infrastructure.development import DevelopmentVideoProvider
-from app.infrastructure.livekit import LiveKitDevelopmentAdapter
+from app.infrastructure.livekit import LiveKitAdapter
 
 
 class Role(StrEnum):
@@ -76,7 +76,7 @@ def get_video_provider(settings: AppSettings) -> VideoProvider:
             settings.livekit_api_secret.get_secret_value(),
             settings.participant_token_ttl_seconds,
         )
-    return LiveKitDevelopmentAdapter(
+    return LiveKitAdapter(
         settings.livekit_url,
         settings.livekit_api_key.get_secret_value(),
         settings.livekit_api_secret.get_secret_value(),

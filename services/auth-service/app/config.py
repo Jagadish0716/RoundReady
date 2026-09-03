@@ -1,15 +1,16 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from roundready_common.config import Environment, is_production, require_secret, require_url
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     service_name: str = "auth-service"
-    environment: str = "local"
+    environment: Environment = "development"
     log_level: str = "INFO"
     telemetry_enabled: bool = False
     database_url: str = Field(
@@ -37,6 +38,30 @@ class Settings(BaseSettings):
     )
     access_token_ttl_seconds: int = Field(default=900, ge=1, le=3600)
     refresh_token_ttl_seconds: int = Field(default=2_592_000, ge=60, le=7_776_000)
+
+    @model_validator(mode="after")
+    def production_configuration(self) -> "Settings":
+        if not is_production(self.environment):
+            return self
+        require_url(
+            "AUTH_DATABASE_URL",
+            self.database_url,
+            schemes={"postgresql+asyncpg"},
+            credentials=True,
+        )
+        require_url("RABBITMQ_URL", self.rabbitmq_url, schemes={"amqp", "amqps"}, credentials=True)
+        require_secret("JWT_SIGNING_KEY", self.jwt_signing_key)
+        if self.jwt_algorithm == "RS256":
+            require_secret("JWT_VERIFICATION_KEY", self.jwt_verification_key)
+            if "BEGIN PRIVATE KEY" not in self.jwt_signing_key.get_secret_value():
+                raise ValueError("JWT_SIGNING_KEY must contain an RSA private key")
+            if "BEGIN PUBLIC KEY" not in self.jwt_verification_key.get_secret_value():
+                raise ValueError("JWT_VERIFICATION_KEY must contain an RSA public key")
+        if self.jwt_issuer.strip() in {"", "roundready-auth"}:
+            raise ValueError("JWT_ISSUER must be explicitly configured in production")
+        if self.jwt_audience.strip() in {"", "roundready-api"}:
+            raise ValueError("JWT_AUDIENCE must be explicitly configured in production")
+        return self
 
 
 @lru_cache

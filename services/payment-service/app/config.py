@@ -1,14 +1,16 @@
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from roundready_common.config import Environment, is_production, require_secret, require_url
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     service_name: str = "payment-service"
-    environment: str = "local"
+    environment: Environment = "development"
     log_level: str = "INFO"
     telemetry_enabled: bool = False
     database_url: str = Field(
@@ -27,7 +29,7 @@ class Settings(BaseSettings):
         validation_alias="RABBITMQ_DEAD_LETTER_EXCHANGE",
     )
     session_price_paise: int = 20000
-    payment_provider: str = "razorpay"
+    payment_provider: Literal["development", "razorpay"] = "razorpay"
     internal_identity_secret: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_IDENTITY_SECRET"
     )
@@ -41,6 +43,28 @@ class Settings(BaseSettings):
     razorpay_base_url: str = "https://api.razorpay.com/v1"
     razorpay_test_mode: bool = True
     database_pooling: bool = True
+
+    @model_validator(mode="after")
+    def production_configuration(self) -> "Settings":
+        if not is_production(self.environment):
+            return self
+        require_url(
+            "PAYMENT_DATABASE_URL",
+            self.database_url,
+            schemes={"postgresql+asyncpg"},
+            credentials=True,
+        )
+        require_url("RABBITMQ_URL", self.rabbitmq_url, schemes={"amqp", "amqps"}, credentials=True)
+        require_secret("INTERNAL_IDENTITY_SECRET", self.internal_identity_secret)
+        require_secret("RAZORPAY_KEY_ID", self.razorpay_key_id, minimum_length=12)
+        require_secret("RAZORPAY_KEY_SECRET", self.razorpay_key_secret)
+        require_secret("RAZORPAY_WEBHOOK_SECRET", self.razorpay_webhook_secret)
+        require_url("RAZORPAY_BASE_URL", self.razorpay_base_url, schemes={"https"})
+        if self.payment_provider != "razorpay" or self.razorpay_test_mode:
+            raise ValueError("development/test payment providers are unavailable in production")
+        if not self.razorpay_key_id.get_secret_value().startswith("rzp_live_"):
+            raise ValueError("RAZORPAY_KEY_ID must be a live-mode key in production")
+        return self
 
 
 @lru_cache

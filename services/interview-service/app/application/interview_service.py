@@ -70,11 +70,18 @@ class InterviewService:
             self.db.add(ProcessedEvent(event_id=data.event_id, event_type="BookingConfirmed"))
             await self.db.commit()
             return existing
-        room = await self.provider.create_room(
-            room_name=f"interview-{data.booking_id}",
-            starts_at=data.scheduled_start,
-            ends_at=data.scheduled_end,
-        )
+        try:
+            room = await self.provider.create_room(
+                room_name=f"interview-{data.booking_id}",
+                starts_at=data.scheduled_start,
+                ends_at=data.scheduled_end,
+            )
+        except Exception as exc:
+            raise ServiceError(
+                code="video_provider_unavailable",
+                message="Interview room could not be provisioned",
+                status_code=503,
+            ) from exc
         item = InterviewSession(
             booking_id=data.booking_id,
             candidate_id=data.candidate_id,
@@ -195,11 +202,18 @@ class InterviewService:
             raise ServiceError(
                 code="room_unavailable", message="Interview room is unavailable", status_code=503
             )
-        return self.provider.create_participant_token(
-            room_reference=item.room_reference,
-            identity=str(identity.user_id),
-            display_name=identity.role.value,
-        )
+        try:
+            return self.provider.create_participant_token(
+                room_reference=item.room_reference,
+                identity=str(identity.user_id),
+                display_name=identity.role.value,
+            )
+        except Exception as exc:
+            raise ServiceError(
+                code="video_provider_unavailable",
+                message="Interview access could not be generated",
+                status_code=503,
+            ) from exc
 
     async def attendance(
         self, session_id: UUID, event_id: str, user_id: UUID, event_type: str, occurred_at: datetime

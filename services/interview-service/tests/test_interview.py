@@ -4,8 +4,10 @@ from uuid import UUID, uuid4
 
 import httpx
 import jwt
-from app.infrastructure.livekit import LiveKitDevelopmentAdapter
+from app.domain.providers import ParticipantAccess, VideoRoom
+from app.infrastructure.livekit import LiveKitAdapter
 from conftest import create_session, headers
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
@@ -34,14 +36,16 @@ def test_booking_event_is_idempotent(client: TestClient, rubric: dict[str, objec
 def test_only_assigned_participants_receive_tokens(
     client: TestClient, rubric: dict[str, object]
 ) -> None:
-    response, candidate, interviewer, _ = create_session(client, str(rubric["id"]))
+    response, candidate, interviewer, payload = create_session(client, str(rubric["id"]))
     session_id = response.json()["id"]
     candidate_join = client.post(
         f"/v1/sessions/{session_id}/join", headers=headers("candidate", candidate)
     )
     assert candidate_join.status_code == 200
     assert (
-        str(candidate) in candidate_join.json()["token"] and "secret" not in candidate_join.json()
+        str(candidate) in candidate_join.json()["token"]
+        and f"interview-{payload['booking_id']}" in candidate_join.json()["token"]
+        and "secret" not in candidate_join.json()
     )
     assert client.post(
         f"/v1/sessions/{session_id}/join", headers=headers("candidate")
@@ -51,6 +55,10 @@ def test_only_assigned_participants_receive_tokens(
             f"/v1/sessions/{session_id}/join", headers=headers("interviewer", interviewer)
         ).status_code
         == 200
+    )
+    assert (
+        client.post(f"/v1/sessions/{session_id}/join", headers=headers("interviewer")).status_code
+        == 404
     )
 
 
@@ -87,6 +95,12 @@ def test_participant_session_discovery_rubric_and_interviewer_lifecycle(
     assert unrelated_start.status_code == 404
     assert started.json()["status"] == "in_progress"
     assert completed.json()["status"] == "feedback_pending"
+    assert (
+        client.post(
+            f"/v1/sessions/{session_id}/join", headers=headers("candidate", candidate)
+        ).status_code
+        == 409
+    )
 
 
 def test_attendance_disconnect_reconnect_and_duplicate(
@@ -263,7 +277,7 @@ def test_persistence_and_published_event_records(
 
 def test_livekit_tokens_are_short_lived_and_room_scoped() -> None:
     secret = "super-secret-with-at-least-thirty-two-bytes"
-    adapter = LiveKitDevelopmentAdapter("ws://localhost:7880", "devkey", secret, 300, True)
+    adapter = LiveKitAdapter("ws://localhost:7880", "devkey", secret, 300, True)
     access = adapter.create_participant_token(
         room_reference="room-1", identity="user-1", display_name="candidate"
     )
@@ -282,9 +296,65 @@ def test_livekit_tokens_are_short_lived_and_room_scoped() -> None:
     assert secret not in access.token
 
 
-def test_live_livekit_credentials_refused() -> None:
+def test_repeated_livekit_tokens_are_fresh_and_have_no_admin_grants() -> None:
+    secret = "super-secret-with-at-least-thirty-two-bytes"
+    adapter = LiveKitAdapter("wss://roundready.livekit.cloud", "APIlive", secret, 300, False)
+    first = adapter.create_participant_token(
+        room_reference="room-1", identity="assigned-user", display_name="candidate"
+    )
+    second = adapter.create_participant_token(
+        room_reference="room-1", identity="assigned-user", display_name="candidate"
+    )
+    claims = jwt.decode(
+        second.token,
+        secret,
+        algorithms=["HS256"],
+        audience=None,
+        options={"verify_aud": False},
+    )
+    assert first.token != second.token
+    assert claims["sub"] == "assigned-user" and claims["video"]["room"] == "room-1"
+    assert claims["exp"] - claims["nbf"] == 300
+    assert set(claims["video"]) == {
+        "roomJoin",
+        "room",
+        "canPublish",
+        "canSubscribe",
+        "canPublishData",
+        "canUpdateOwnMetadata",
+    }
+
+
+def test_token_provider_failure_returns_controlled_error(
+    client: TestClient, rubric: dict[str, object]
+) -> None:
+    from app.dependencies import get_video_provider
+
+    class FailingTokenProvider:
+        name = "livekit"
+
+        async def create_room(
+            self, *, room_name: str, starts_at: datetime, ends_at: datetime
+        ) -> VideoRoom:
+            return VideoRoom(room_name, "wss://roundready.livekit.cloud")
+
+        def create_participant_token(
+            self, *, room_reference: str, identity: str, display_name: str
+        ) -> ParticipantAccess:
+            raise ValueError("sensitive provider detail")
+
+    response, candidate, _, _ = create_session(client, str(rubric["id"]))
+    app = cast(FastAPI, client.app)
+    app.dependency_overrides[get_video_provider] = lambda: FailingTokenProvider()
     try:
-        LiveKitDevelopmentAdapter("wss://cloud", "APIlive", "secret", 300, False)
-    except ValueError:
-        return
-    raise AssertionError("live credentials must be refused")
+        result = client.post(
+            f"/v1/sessions/{response.json()['id']}/join",
+            headers=headers("candidate", candidate),
+        )
+        assert result.status_code == 503
+        assert result.json()["error"]["code"] == "video_provider_unavailable"
+        assert "sensitive provider detail" not in result.text
+    finally:
+        from conftest import FAKE
+
+        app.dependency_overrides[get_video_provider] = lambda: FAKE

@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.domain.providers import VideoProvider
 from app.infrastructure.database import session_factory
 from app.infrastructure.development import DevelopmentVideoProvider
-from app.infrastructure.livekit import LiveKitDevelopmentAdapter
+from app.infrastructure.livekit import LiveKitAdapter
 
 
 async def run() -> None:
@@ -31,7 +31,7 @@ async def run() -> None:
             settings.participant_token_ttl_seconds,
         )
     else:
-        provider = LiveKitDevelopmentAdapter(
+        provider = LiveKitAdapter(
             settings.livekit_url,
             settings.livekit_api_key.get_secret_value(),
             settings.livekit_api_secret.get_secret_value(),

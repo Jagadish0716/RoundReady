@@ -12,7 +12,7 @@ from app.config import Settings, get_settings
 from app.domain.providers import PaymentProvider
 from app.infrastructure.database import get_db_session
 from app.infrastructure.development import DevelopmentPaymentProvider
-from app.infrastructure.razorpay import RazorpayTestAdapter
+from app.infrastructure.razorpay import RazorpayAdapter
 
 
 class Role(StrEnum):
@@ -80,7 +80,7 @@ AdminIdentity = Annotated[Identity, Depends(require_admin)]
 def get_payment_provider(settings: AppSettings) -> PaymentProvider:
     if settings.payment_provider == "development":
         return DevelopmentPaymentProvider(settings.razorpay_webhook_secret.get_secret_value())
-    return RazorpayTestAdapter(
+    return RazorpayAdapter(
         settings.razorpay_key_id.get_secret_value(),
         settings.razorpay_key_secret.get_secret_value(),
         settings.razorpay_webhook_secret.get_secret_value(),

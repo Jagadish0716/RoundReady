@@ -267,6 +267,8 @@ describe("CandidateBooking", () => {
   });
 
   it("does not present development completion in production configuration", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://api.roundready.example");
     vi.stubEnv("NEXT_PUBLIC_ENABLE_DEVELOPMENT_PAYMENTS", "false");
     render(<CandidateBooking />);
     await createPendingBooking();
