@@ -1,0 +1,15 @@
+node_modules
+.next
+coverage
+.vitest
+*.log
+.env
+.env.*
+.DS_Store
+.git
+.vscode
+**/*.test.ts
+**/*.test.tsx
+**/__tests__
+vitest.config.ts
+vitest.setup.ts

@@ -43,5 +43,88 @@ Compose file runs `alembic upgrade head` during container startup only because i
 single-host development environment; this is not the production deployment strategy.
 
 The current migration graph retains booking migration `0003_reusable_failed_slots` and
-notification migration `20260902_0002_notification_ownership`. Database backup, restore, PITR,
-retention, and recovery testing are deferred to RoundReady 14E.3.
+notification migration `20260902_0002_notification_ownership`. Each of the seven migration
+directories currently has one head.
+
+## Backups
+
+Run a scheduled logical backup for each service-owned database. Use `pg_dump` per database;
+use `pg_dumpall --globals-only` separately only when a controlled record of cluster roles and
+tablespaces is required. Do not use a single application credential for all databases. Supply
+the service URL through a runtime secret mechanism or `PGPASSFILE`; never put a password in a
+script or committed environment file.
+
+The repository helper creates a custom-format dump with a UTC timestamp, service, and database
+in its filename:
+
+```bash
+scripts/postgres-backup.sh --url "$AUTH_DATABASE_URL" --service auth --output-dir /secure/backups
+```
+
+Store backups encrypted at rest and in transit, with access limited to recovery operators.
+Choose retention with the operational owner; a practical starting point is daily backups for
+at least 30 days and monthly backups for a longer business-required period. Record the source
+cluster, service/database, timestamp, and backup verification result. Storage provisioning and
+encryption-key management are deployment responsibilities, not part of this repository.
+
+## Restore and verification
+
+Create an empty database owned by the correct service role, then restore the custom dump into
+the explicit target URL. For a recovery or staging database, use a distinct database name and
+credentials; never point one service at another service's database:
+
+```bash
+scripts/postgres-restore.sh --backup /secure/backups/20260903T010203Z_auth_roundready_auth.dump \
+  --target-url "$AUTH_RECOVERY_DATABASE_URL"
+```
+
+The restore helper refuses target names containing `prod`, `production`, or `live` unless
+`--allow-production-target` is supplied deliberately. It does not clean an existing database,
+so an empty target is required and accidental overwrite is avoided. Credentials are supplied
+at runtime and are not printed or stored by the helper.
+
+Verify every restore with connectivity, table presence, and the service's current Alembic
+revision:
+
+```bash
+scripts/postgres-verify-restore.sh --url "$AUTH_RECOVERY_DATABASE_URL" \
+  --service services/auth-service
+```
+
+The lightweight procedure is: create a dump, restore it into a temporary/test database, run
+this verification helper, and confirm critical tables for that service. The helper's table
+count is only a sanity check; recovery operators must also check the expected service tables.
+Do not require production credentials for this procedure. A local smoke can use the Compose
+database and a temporary database created with the local administrator role.
+
+## Migration deployment and rollback
+
+For every production release, use this order:
+
+1. Create and record a database backup/checkpoint.
+2. Run `alembic upgrade head` once for each service, as an explicit deployment job.
+3. Verify the migration head and recovery checks.
+4. Deploy application replicas.
+
+A migration command failure stops deployment. Do not run migrations automatically in multiple
+application replicas. The development Compose startup migration is a local-only exception.
+
+Application rollback means deploying the previous application version when the schema remains
+backward compatible. If a migration or data change cannot safely be reversed, use database
+recovery from a verified backup into the planned target, then redirect the compatible previous
+application version. Alembic downgrade is allowed only for a specific migration with a tested
+safe downgrade; never automate destructive downgrades.
+
+Future migrations should be additive first. Use expand/contract for breaking changes: add new
+structures, deploy compatibility code, backfill separately when needed, and remove or rename
+old columns only after no deployed version depends on them. Do not drop or rename a column in
+the same deployment that removes compatibility.
+
+## Recovery checklist
+
+- Database is reachable with the intended service credential.
+- Expected Alembic head is present.
+- Critical service tables exist.
+- Application `/ready` succeeds after the recovered database is attached.
+- No cross-service database was restored or granted.
+- Backup source, timestamp, target, and verification result are recorded.

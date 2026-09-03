@@ -33,7 +33,8 @@ Non-secret identifiers and URLs must still be explicit in production.
 | RabbitMQ          | `RABBITMQ_EXCHANGE`, service event queue, `RABBITMQ_DEAD_LETTER_EXCHANGE`                                                                                                   | Non-secret topology names; defaults may be retained                      |
 | Internal services | `INTERNAL_IDENTITY_SECRET`, `INTERNAL_SERVICE_SECRET`, `NOTIFICATION_INTERNAL_IDENTITY_SECRET`                                                                              | Secrets; gateway/service values must match their intended trust boundary |
 | Gateway routing   | `AUTH_SERVICE_URL`, `USER_SERVICE_URL`, `INTERVIEWER_SERVICE_URL`, `BOOKING_SERVICE_URL`, `PAYMENT_SERVICE_URL`, `INTERVIEW_SERVICE_URL`, `NOTIFICATION_SERVICE_URL`        | Non-secret, explicit non-local service URLs                              |
-| Gateway policy    | `CORS_ORIGINS`, `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`                                                                                                          | Non-secret                                                               |
+| Gateway policy    | `CORS_ORIGINS`, `CORS_ALLOW_CREDENTIALS`, `HSTS_ENABLED`, `MAX_REQUEST_BODY_BYTES`                                                                                           | Non-secret                                                               |
+| Gateway abuse     | `RATE_LIMIT_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`, `AUTH_RATE_LIMIT_REQUESTS`, `AUTH_RATE_LIMIT_WINDOW_SECONDS`                                                          | Non-secret                                                               |
 | Payment           | `PAYMENT_PROVIDER`, `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_BASE_URL`, `RAZORPAY_TEST_MODE`                                          | Provider selector non-secret; provider credentials/webhook secret secret |
 | Interview         | `VIDEO_PROVIDER`, `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, `LIVEKIT_TEST_MODE`, `PARTICIPANT_TOKEN_TTL_SECONDS`                                              | URL/mode/TTL non-secret; API credentials secret                          |
 | Notifications     | `EMAIL_PROVIDER`, `RESEND_API_BASE_URL`, `RESEND_API_KEY`, `EMAIL_FROM_ADDRESS`                                                                                             | Selector/URL/sender non-secret; API key secret                           |
@@ -49,6 +50,35 @@ Likewise, `REDIS_PASSWORD`, `RABBITMQ_USER`, and `RABBITMQ_PASSWORD` are local C
 production applications consume provider-issued connection URLs rather than this template.
 Pool sizing, readiness, and explicit migration execution are covered in the
 [PostgreSQL production guide](postgresql-production.md).
+
+Redis and RabbitMQ production URLs must use authenticated, non-local endpoints. Use `rediss://`
+for Redis TLS and `amqps://` for RabbitMQ TLS. Clients enforce bounded connection and socket
+timeouts, Redis health checks, and RabbitMQ reconnect backoff. Redis-dependent API readiness
+checks include a Redis ping; liveness remains independent of dependencies.
+
+The gateway's production `CORS_ORIGINS` must be a non-empty list of exact HTTPS frontend
+origins; wildcard and localhost origins are rejected. `CORS_ALLOW_CREDENTIALS` is explicit and
+must match the frontend authentication design. `HSTS_ENABLED` should be enabled only when the
+public gateway is served exclusively over HTTPS. The gateway does not trust client-supplied
+`X-Forwarded-*` headers; deployment must provide the actual peer address, scheme, and host at
+the trusted edge. Public login, registration, and refresh requests use their own bounded Redis
+rate-limit window, while authenticated traffic uses the general gateway limit. Oversized
+request bodies are rejected by `MAX_REQUEST_BODY_BYTES` (default 1 MiB).
+
+## Observability
+
+Production backend logs are JSON with UTC timestamps, level, service, environment, message,
+correlation ID, and request method/path/status/duration when applicable. Health probes are kept
+quiet at normal request-log level. `X-Correlation-ID` is accepted only when bounded and composed
+of safe identifier characters; invalid or oversized values are replaced with a generated ID and
+the ID is returned and propagated downstream. The business `correlation_id` in event envelopes
+remains distinct from an OpenTelemetry trace ID.
+
+Set `TELEMETRY_ENABLED=true` and `OTEL_EXPORTER_OTLP_ENDPOINT` to export traces. Telemetry is
+disabled by default and does not require a collector unless explicitly enabled. FastAPI,
+outbound HTTPX, and RabbitMQ publishing are instrumented where configured; exporter failures do
+not stop application requests. Never log passwords, tokens, authorization headers, cookies,
+provider secrets/signatures, database or broker credentials, or request/response bodies.
 
 ## Development-only behavior
 

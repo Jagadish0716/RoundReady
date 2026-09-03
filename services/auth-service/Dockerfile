@@ -1,13 +1,22 @@
+FROM python:3.12-slim AS builder
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+WORKDIR /build
+COPY pyproject.toml README.md ./
+COPY libs ./libs
+RUN pip install --prefix=/install .
+
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app/libs
+    PYTHONPATH=/install/lib/python3.12/site-packages:/app/libs \
+    PATH=/install/bin:$PATH
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
-COPY libs ./libs
-RUN pip install --no-cache-dir .
+COPY --from=builder /install /install
 COPY services/auth-service/app ./app
 COPY services/auth-service/alembic ./alembic
 COPY services/auth-service/alembic.ini ./alembic.ini

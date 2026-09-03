@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Request
-from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -29,7 +28,16 @@ def install_exception_handlers(app: FastAPI) -> None:
             error=ErrorDetail(
                 code="validation_error",
                 message="Request validation failed",
-                details={"errors": jsonable_encoder(exc.errors())},
+                details={
+                    "errors": [
+                        {
+                            "type": error.get("type"),
+                            "loc": error.get("loc"),
+                            "msg": error.get("msg"),
+                        }
+                        for error in exc.errors()
+                    ]
+                },
             ),
             correlation_id=get_correlation_id(),
         )

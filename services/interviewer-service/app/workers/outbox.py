@@ -10,7 +10,7 @@ from roundready_common.messaging import RabbitEventPublisher
 
 async def run() -> None:
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.service_name, settings.environment)
     logger = structlog.get_logger(service=settings.service_name, worker="outbox")
     publisher = RabbitEventPublisher(settings.rabbitmq_url, settings.rabbitmq_exchange)
     while True:

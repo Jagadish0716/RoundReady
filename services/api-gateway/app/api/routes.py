@@ -89,9 +89,13 @@ async def proxy(
             )
     remote = request.client.host if request.client else "unknown"
     rate_key = str(identity.user_id) if identity else remote
-    if not await limiter.allow(
-        rate_key, settings.rate_limit_requests, settings.rate_limit_window_seconds
-    ):
+    limit = settings.rate_limit_requests
+    window = settings.rate_limit_window_seconds
+    if public and path in {"v1/auth/login", "v1/auth/register", "v1/auth/refresh"}:
+        rate_key = f"auth:{path}:{rate_key}"
+        limit = settings.auth_rate_limit_requests
+        window = settings.auth_rate_limit_window_seconds
+    if not await limiter.allow(rate_key, limit, window):
         raise ServiceError(code="rate_limit_exceeded", message="Too many requests", status_code=429)
     base_url, downstream_path = _resolve(path, settings)
     headers: dict[str, str] = {"X-Correlation-ID": get_correlation_id()}
@@ -135,6 +139,12 @@ async def proxy(
             message="Downstream service is unavailable",
             status_code=503,
         ) from exc
+    if upstream.status_code >= 500:
+        raise ServiceError(
+            code="downstream_service_error",
+            message="Downstream service failed",
+            status_code=502,
+        )
     response_headers: dict[str, str] = {}
     for name in ("content-type", "www-authenticate"):
         if name in upstream.headers:

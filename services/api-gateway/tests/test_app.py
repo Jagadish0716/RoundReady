@@ -69,6 +69,75 @@ def test_health_and_correlation_id(
     client, _, _ = gateway
     response = client.get("/health", headers={"X-Correlation-ID": "test-request"})
     assert response.status_code == 200 and response.headers["X-Correlation-ID"] == "test-request"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["Content-Security-Policy"] == "frame-ancestors 'none'"
+    assert response.headers["Referrer-Policy"] == "strict-origin-when-cross-origin"
+    assert response.headers["Permissions-Policy"] == "camera=(), microphone=(), geolocation=()"
+
+
+def test_invalid_correlation_id_is_replaced_and_propagated(
+    gateway: tuple[TestClient, list[httpx.Request], FakeLimiter],
+) -> None:
+    client, requests, _ = gateway
+    response = client.post(
+        "/v1/auth/login",
+        headers={"X-Correlation-ID": "invalid value"},
+        json={"email": "candidate@example.in", "password": "test-password"},
+    )
+    assert response.status_code == 200
+    correlation_id = response.headers["X-Correlation-ID"]
+    assert correlation_id != "invalid value" and len(correlation_id) == 36
+    assert requests[-1].headers["X-Correlation-ID"] == correlation_id
+
+
+def test_auth_rate_limit_returns_429(
+    gateway: tuple[TestClient, list[httpx.Request], FakeLimiter],
+) -> None:
+    client, _, limiter = gateway
+    limiter.allowed = False
+    response = client.post(
+        "/v1/auth/login", json={"email": "user@example.in", "password": "password"}
+    )
+    assert response.status_code == 429
+    assert limiter.calls[-1] == ("auth:v1/auth/login:testclient", 10, 60)
+
+
+def test_configured_cors_allows_only_explicit_origin(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = Settings(
+        cors_origins=["https://app.roundready.in"],
+        internal_identity_secret="internal-test-secret",
+        notification_internal_identity_secret="notification-test-secret",
+    )
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    with TestClient(create_app()) as client:
+        allowed = client.options(
+            "/v1/auth/login",
+            headers={
+                "Origin": "https://app.roundready.in",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+        denied = client.options(
+            "/v1/auth/login",
+            headers={
+                "Origin": "https://evil.example",
+                "Access-Control-Request-Method": "POST",
+            },
+        )
+    assert allowed.headers["access-control-allow-origin"] == "https://app.roundready.in"
+    assert "access-control-allow-origin" not in denied.headers
+
+
+def test_oversized_request_is_rejected(
+    gateway: tuple[TestClient, list[httpx.Request], FakeLimiter],
+) -> None:
+    client, _, _ = gateway
+    response = client.post(
+        "/v1/auth/login",
+        content=b"{}",
+        headers={"Content-Length": str(1_048_577)},
+    )
+    assert response.status_code == 413
 
 
 @pytest.mark.parametrize("token", ["random-string", "not.a.valid.jwt", "expired-token"])
@@ -183,3 +252,25 @@ def test_downstream_unavailable_maps_to_503() -> None:
         response.status_code == 503
         and response.json()["error"]["code"] == "downstream_service_unavailable"
     )
+
+
+def test_downstream_5xx_body_is_not_forwarded() -> None:
+    async def failing_client() -> AsyncIterator[httpx.AsyncClient]:
+        def respond(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text="database password=super-secret")
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            yield client
+
+    app = create_app()
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        internal_identity_secret="internal-test-secret"
+    )
+    app.dependency_overrides[get_http_client] = failing_client
+    app.dependency_overrides[get_rate_limiter] = lambda: FakeLimiter()
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/auth/login", json={"email": "candidate@example.in", "password": "test"}
+        )
+    assert response.status_code == 502
+    assert "super-secret" not in response.text

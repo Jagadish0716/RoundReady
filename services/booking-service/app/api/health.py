@@ -1,8 +1,10 @@
 from typing import Annotated
 
+from app.config import get_settings
 from app.infrastructure.database import get_db_session
 from fastapi import APIRouter, Depends
 from roundready_common.errors import ServiceError
+from roundready_common.redis import create_redis_client
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,4 +26,13 @@ async def ready(
         raise ServiceError(
             code="service_not_ready", message="Database is unavailable", status_code=503
         ) from exc
+    redis = create_redis_client(get_settings().redis_url)
+    try:
+        await redis.ping()
+    except Exception as exc:
+        raise ServiceError(
+            code="service_not_ready", message="Redis is unavailable", status_code=503
+        ) from exc
+    finally:
+        await redis.aclose()
     return {"status": "ready"}

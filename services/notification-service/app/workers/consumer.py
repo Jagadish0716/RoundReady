@@ -5,7 +5,7 @@ import httpx
 import structlog
 from aio_pika.abc import AbstractIncomingMessage
 from roundready_common.logging import configure_logging
-from roundready_common.messaging import decode_event
+from roundready_common.messaging import connect_rabbit, decode_event
 
 from app.application.notification_service import NotificationService
 from app.config import Settings, get_settings
@@ -69,9 +69,9 @@ async def retry_loop(settings: Settings) -> None:
 
 async def run() -> None:
     settings = get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(settings.log_level, settings.service_name, settings.environment)
     logger = structlog.get_logger(service=settings.service_name, worker="event-consumer")
-    connection = await aio_pika.connect_robust(settings.rabbitmq_url)
+    connection = await connect_rabbit(settings.rabbitmq_url)
     channel = await connection.channel()
     await channel.set_qos(prefetch_count=20)
     exchange = await channel.declare_exchange(

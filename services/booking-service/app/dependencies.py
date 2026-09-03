@@ -1,12 +1,13 @@
 import secrets
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Header
-from redis.asyncio import Redis
 from roundready_common.errors import ServiceError
+from roundready_common.redis import create_redis_client
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -76,10 +77,12 @@ CandidateIdentity = Annotated[Identity, Depends(candidate)]
 AdminIdentity = Annotated[Identity, Depends(admin)]
 
 
-def hold_store(settings: AppSettings) -> RedisHoldStore:
-    return RedisHoldStore(
-        Redis.from_url(settings.redis_url, decode_responses=True), settings.hold_ttl_seconds
-    )
+async def hold_store(settings: AppSettings) -> AsyncIterator[RedisHoldStore]:
+    redis = create_redis_client(settings.redis_url, decode_responses=True)
+    try:
+        yield RedisHoldStore(redis, settings.hold_ttl_seconds)
+    finally:
+        await redis.aclose()
 
 
 HoldStore = Annotated[RedisHoldStore, Depends(hold_store)]

@@ -6,9 +6,9 @@ from uuid import UUID
 
 import httpx
 from fastapi import Depends, Header
-from redis.asyncio import Redis
 from roundready_common.correlation import get_correlation_id
 from roundready_common.errors import ServiceError
+from roundready_common.redis import create_redis_client
 
 from app.config import Settings, get_settings
 from app.rate_limit import RateLimiter, RedisRateLimiter
@@ -38,7 +38,7 @@ HttpClient = Annotated[httpx.AsyncClient, Depends(get_http_client)]
 
 
 def get_rate_limiter(settings: AppSettings) -> RateLimiter:
-    return RedisRateLimiter(Redis.from_url(settings.redis_url, decode_responses=True))
+    return RedisRateLimiter(create_redis_client(settings.redis_url, decode_responses=True))
 
 
 Limiter = Annotated[RateLimiter, Depends(get_rate_limiter)]

@@ -212,7 +212,9 @@ def test_cancelled_booking_releases_slot_for_rebooking(client: TestClient) -> No
 
 def test_redis_lock_expires(infrastructure: tuple[str, str]) -> None:
     async def scenario() -> None:
-        redis = Redis.from_url(infrastructure[1], decode_responses=True)
+        redis = Redis.from_url(
+            infrastructure[1], decode_responses=True, socket_timeout=5, socket_connect_timeout=5
+        )
         store = RedisHoldStore(redis, 1)
         assert await store.acquire("expiry-test", "token-one")
         await asyncio.sleep(1.1)

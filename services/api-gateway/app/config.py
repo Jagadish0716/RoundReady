@@ -1,4 +1,5 @@
 from functools import lru_cache
+from urllib.parse import urlsplit
 
 from pydantic import AnyHttpUrl, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -27,15 +28,37 @@ class Settings(BaseSettings):
         default=SecretStr(""), validation_alias="NOTIFICATION_INTERNAL_IDENTITY_SECRET"
     )
     cors_origins: list[str] = Field(default_factory=list, validation_alias="CORS_ORIGINS")
+    cors_allow_credentials: bool = Field(default=True, validation_alias="CORS_ALLOW_CREDENTIALS")
+    hsts_enabled: bool = Field(default=False, validation_alias="HSTS_ENABLED")
+    max_request_body_bytes: int = Field(
+        default=1_048_576, ge=1_024, le=10_485_760, validation_alias="MAX_REQUEST_BODY_BYTES"
+    )
     rate_limit_requests: int = Field(default=60, ge=1, validation_alias="RATE_LIMIT_REQUESTS")
     rate_limit_window_seconds: int = Field(
         default=60, ge=1, validation_alias="RATE_LIMIT_WINDOW_SECONDS"
+    )
+    auth_rate_limit_requests: int = Field(
+        default=10, ge=1, validation_alias="AUTH_RATE_LIMIT_REQUESTS"
+    )
+    auth_rate_limit_window_seconds: int = Field(
+        default=60, ge=1, validation_alias="AUTH_RATE_LIMIT_WINDOW_SECONDS"
     )
 
     @model_validator(mode="after")
     def production_configuration(self) -> "Settings":
         if not is_production(self.environment):
             return self
+        if not self.cors_origins or "*" in self.cors_origins:
+            raise ValueError(
+                "CORS_ORIGINS must contain explicit origins and cannot use localhost in production"
+            )
+        for origin in self.cors_origins:
+            parsed_origin = urlsplit(origin)
+            if parsed_origin.hostname in {"localhost", "127.0.0.1", "::1"}:
+                raise ValueError("CORS_ORIGINS cannot use localhost in production")
+            if parsed_origin.path not in {"", "/"} or parsed_origin.query or parsed_origin.fragment:
+                raise ValueError("CORS_ORIGINS must contain origin values without paths")
+            require_url("CORS_ORIGINS", origin, schemes={"https"})
         require_url("REDIS_URL", self.redis_url, schemes={"redis", "rediss"}, credentials=True)
         for name, value in (
             ("AUTH_SERVICE_URL", self.auth_service_url),

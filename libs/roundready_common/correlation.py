@@ -1,3 +1,4 @@
+import re
 from contextvars import ContextVar, Token
 from uuid import uuid4
 
@@ -7,10 +8,17 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 CORRELATION_HEADER = "X-Correlation-ID"
 _correlation_id: ContextVar[str] = ContextVar("correlation_id", default="unknown")
+_VALID_CORRELATION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
 def get_correlation_id() -> str:
     return _correlation_id.get()
+
+
+def valid_correlation_id(value: str | None) -> str:
+    if value is not None and _VALID_CORRELATION_ID.fullmatch(value):
+        return value
+    return str(uuid4())
 
 
 class CorrelationIdMiddleware:
@@ -27,7 +35,7 @@ class CorrelationIdMiddleware:
             await self.app(scope, receive, send)
             return
         request = Request(scope)
-        correlation_id = request.headers.get(CORRELATION_HEADER) or str(uuid4())
+        correlation_id = valid_correlation_id(request.headers.get(CORRELATION_HEADER))
         token: Token[str] = _correlation_id.set(correlation_id)
 
         async def send_with_header(message: Message) -> None:
