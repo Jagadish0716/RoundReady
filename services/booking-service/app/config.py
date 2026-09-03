@@ -17,6 +17,12 @@ class Settings(BaseSettings):
         validation_alias="BOOKING_DATABASE_URL",
     )
     database_pooling: bool = True
+    database_pool_size: int = Field(default=5, ge=1, le=50)
+    database_max_overflow: int = Field(default=10, ge=0, le=100)
+    database_pool_timeout_seconds: int = Field(default=30, ge=1, le=120)
+    database_pool_recycle_seconds: int = Field(default=1800, ge=60, le=86400)
+    database_pool_pre_ping: bool = True
+    database_connect_timeout_seconds: int = Field(default=10, ge=1, le=60)
     redis_url: str = Field(default="redis://localhost:6379/2", validation_alias="BOOKING_REDIS_URL")
     internal_identity_secret: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_IDENTITY_SECRET"

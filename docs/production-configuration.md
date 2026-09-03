@@ -47,6 +47,8 @@ inputs to the local Compose PostgreSQL initializer. In a production deployment, 
 database separately and inject only the resulting service-owned database URL into that service.
 Likewise, `REDIS_PASSWORD`, `RABBITMQ_USER`, and `RABBITMQ_PASSWORD` are local Compose inputs;
 production applications consume provider-issued connection URLs rather than this template.
+Pool sizing, readiness, and explicit migration execution are covered in the
+[PostgreSQL production guide](postgresql-production.md).
 
 ## Development-only behavior
 
