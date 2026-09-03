@@ -50,3 +50,47 @@ export const createBlockout = (
   request<Blockout>(`${own}/availability/blockouts`, { method: "POST", body });
 export const deleteBlockout = (request: AuthenticatedRequest, id: string) =>
   request<null>(`${own}/availability/blockouts/${id}`, { method: "DELETE" });
+
+const admin = "/v1/interviewers/admin";
+
+export const getVerificationQueue = (request: AuthenticatedRequest) =>
+  request<InterviewerProfile[]>(`${admin}/verification-queue`);
+export const approveInterviewer = (
+  request: AuthenticatedRequest,
+  interviewerId: string,
+) =>
+  request<InterviewerProfile>(
+    `${admin}/interviewers/${interviewerId}/approve`,
+    {
+      method: "POST",
+    },
+  );
+export const rejectInterviewer = (
+  request: AuthenticatedRequest,
+  interviewerId: string,
+  reason: string,
+) =>
+  request<InterviewerProfile>(`${admin}/interviewers/${interviewerId}/reject`, {
+    method: "POST",
+    body: { reason },
+  });
+export const suspendInterviewer = (
+  request: AuthenticatedRequest,
+  interviewerId: string,
+  reason: string,
+) =>
+  request<InterviewerProfile>(
+    `${admin}/interviewers/${interviewerId}/suspend`,
+    {
+      method: "POST",
+      body: { reason },
+    },
+  );
+export const reactivateInterviewer = (
+  request: AuthenticatedRequest,
+  interviewerId: string,
+) =>
+  request<InterviewerProfile>(
+    `${admin}/interviewers/${interviewerId}/reactivate`,
+    { method: "POST" },
+  );

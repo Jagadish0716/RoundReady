@@ -112,8 +112,7 @@ async def proxy(
         identity_secret = settings.internal_identity_secret.get_secret_value()
         if path.startswith("v1/notifications"):
             identity_secret = (
-                settings.notification_internal_identity_secret.get_secret_value()
-                or identity_secret
+                settings.notification_internal_identity_secret.get_secret_value() or identity_secret
             )
         headers.update(
             {

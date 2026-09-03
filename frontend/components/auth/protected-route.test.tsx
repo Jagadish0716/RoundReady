@@ -36,6 +36,17 @@ const candidate: AuthState = {
   },
 };
 
+function asRole(role: "candidate" | "interviewer" | "admin"): AuthState {
+  if (candidate.status !== "authenticated") throw new Error("invalid fixture");
+  return {
+    ...candidate,
+    session: {
+      ...candidate.session,
+      user: { ...candidate.session.user, role },
+    },
+  };
+}
+
 describe("ProtectedRoute", () => {
   beforeEach(() => {
     mocks.state = initialAuthState;
@@ -56,5 +67,26 @@ describe("ProtectedRoute", () => {
       <ProtectedRoute allowedRoles={["interviewer"]}>private</ProtectedRoute>,
     );
     expect(screen.getByRole("alert")).toHaveTextContent("do not have access");
+  });
+
+  it.each(["candidate", "interviewer"] as const)(
+    "denies %s access to the admin route",
+    (role) => {
+      mocks.state = asRole(role);
+      render(
+        <ProtectedRoute allowedRoles={["admin"]}>
+          admin workspace
+        </ProtectedRoute>,
+      );
+      expect(screen.getByRole("alert")).toHaveTextContent("do not have access");
+    },
+  );
+
+  it("allows an admin into the admin route", () => {
+    mocks.state = asRole("admin");
+    render(
+      <ProtectedRoute allowedRoles={["admin"]}>admin workspace</ProtectedRoute>,
+    );
+    expect(screen.getByText("admin workspace")).toBeInTheDocument();
   });
 });

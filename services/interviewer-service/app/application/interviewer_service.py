@@ -184,6 +184,26 @@ class InterviewerService:
             ).all()
         )
 
+    async def list_profiles(
+        self, verification_status: VerificationStatus | None
+    ) -> list[InterviewerProfile]:
+        statement = select(InterviewerProfile)
+        if verification_status is not None:
+            statement = statement.where(
+                InterviewerProfile.verification_status == verification_status
+            )
+        return list(
+            (
+                await self._session.scalars(
+                    statement.order_by(
+                        InterviewerProfile.verification_status,
+                        InterviewerProfile.updated_at,
+                        InterviewerProfile.user_id,
+                    )
+                )
+            ).all()
+        )
+
     async def review(
         self, user_id: UUID, admin_id: UUID, target: VerificationStatus, reason: str | None = None
     ) -> InterviewerProfile:

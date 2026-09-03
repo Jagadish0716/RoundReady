@@ -1,3 +1,5 @@
+import { InterviewerReview } from "@/components/admin/interviewer-review";
+
 export default function AdminPage() {
-  return <h1 className="text-2xl font-semibold">Admin area</h1>;
+  return <InterviewerReview />;
 }

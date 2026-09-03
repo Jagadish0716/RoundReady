@@ -1,3 +1,4 @@
+from typing import Annotated
 from uuid import UUID
 
 from app.api.schemas import (
@@ -15,7 +16,7 @@ from app.api.schemas import (
 from app.application.interviewer_service import InterviewerService
 from app.dependencies import AdminIdentity, DatabaseSession, InterviewerIdentity
 from app.domain.models import VerificationStatus
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Query, Response, status
 
 router = APIRouter(prefix="/v1", tags=["interviewers"])
 
@@ -121,6 +122,18 @@ async def verification_queue(
     return [
         ProfileResponse.model_validate(item)
         for item in await InterviewerService(session).verification_queue()
+    ]
+
+
+@router.get("/admin/interviewers", response_model=list[ProfileResponse])
+async def admin_list_interviewers(
+    _admin: AdminIdentity,
+    session: DatabaseSession,
+    verification_status: Annotated[VerificationStatus | None, Query()] = None,
+) -> list[ProfileResponse]:
+    return [
+        ProfileResponse.model_validate(item)
+        for item in await InterviewerService(session).list_profiles(verification_status)
     ]
 
 

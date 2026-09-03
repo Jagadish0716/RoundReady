@@ -22,3 +22,18 @@ python -m app.workers.outbox
 
 Public registration permits candidate and interviewer roles only. Admin credentials require
 an audited bootstrap/administrative provisioning process.
+
+## Initial admin provisioning
+
+Admin registration is never public. Explicitly run the idempotent bootstrap command inside the
+auth-service environment after migrations have completed:
+
+```bash
+ROUNDREADY_ADMIN_EMAIL=admin@example.in \
+ROUNDREADY_ADMIN_PASSWORD='use-a-secret-manager-value' \
+python -m app.scripts.create_admin
+```
+
+Omit `ROUNDREADY_ADMIN_PASSWORD` to enter it securely at the prompt. Re-running the command for an
+existing admin leaves its password and account unchanged. It refuses to promote an existing
+Candidate or Interviewer account.

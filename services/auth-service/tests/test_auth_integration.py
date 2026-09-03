@@ -3,8 +3,11 @@ from uuid import uuid4
 
 import psycopg
 import pytest
+from app.domain.models import Credential, Role
 from app.domain.security import hash_password
+from app.scripts.create_admin import ProvisionResult, provision_admin
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 
 def login(client: TestClient, user: dict[str, Any]) -> dict[str, Any]:
@@ -102,6 +105,36 @@ def test_registration_input_validation(client: TestClient) -> None:
     assert invalid_email.status_code == 422
     assert short_password.status_code == 422
     assert public_admin.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_admin_bootstrap_is_hashed_login_capable_and_idempotent(
+    client: TestClient,
+) -> None:
+    from app.infrastructure.database import session_factory
+
+    email = f"bootstrap-{uuid4()}@example.in"
+    password = "BootstrapAdminPassword1!"
+    async with session_factory() as session:
+        first = await provision_admin(session, email, password)
+    async with session_factory() as session:
+        second = await provision_admin(session, email.upper(), "DifferentPassword1!")
+        credential = await session.scalar(select(Credential).where(Credential.email == email))
+
+    assert first is ProvisionResult.CREATED
+    assert second is ProvisionResult.ALREADY_EXISTS
+    assert credential is not None
+    assert credential.role is Role.ADMIN
+    assert credential.password_hash != password
+    response = client.post("/v1/auth/login", json={"email": email, "password": password})
+    assert response.status_code == 200
+    assert response.json()["access_token"]
+    assert (
+        client.post(
+            "/v1/auth/login", json={"email": email, "password": "DifferentPassword1!"}
+        ).status_code
+        == 401
+    )
 
 
 def test_login_success_failure_role_claim_and_current_identity(

@@ -76,10 +76,16 @@ def test_verification_approve_suspend_reactivate_and_events(
     assert user_id in {item["user_id"] for item in queue.json()}
     approved = client.post(f"/v1/admin/interviewers/{user_id}/approve", headers=admin)
     assert approved.json()["verification_status"] == "verified"
+    verified = client.get("/v1/admin/interviewers?verification_status=verified", headers=admin)
+    assert user_id in {item["user_id"] for item in verified.json()}
     suspended = client.post(
         f"/v1/admin/interviewers/{user_id}/suspend", headers=admin, json={"reason": "Policy review"}
     )
     assert suspended.json()["verification_status"] == "suspended"
+    suspended_list = client.get(
+        "/v1/admin/interviewers?verification_status=suspended", headers=admin
+    )
+    assert user_id in {item["user_id"] for item in suspended_list.json()}
     reactivated = client.post(f"/v1/admin/interviewers/{user_id}/reactivate", headers=admin)
     assert reactivated.json()["verification_status"] == "verified"
     with (
@@ -92,6 +98,21 @@ def test_verification_approve_suspend_reactivate_and_events(
         events = [row[0] for row in cursor.fetchall()]
     assert events.count("interviewer.InterviewerVerified.v1") == 2
     assert "interviewer.InterviewerSuspended.v1" in events
+
+
+def test_admin_interviewer_discovery_is_role_protected_and_filterable(
+    client: TestClient, profile: dict[str, object]
+) -> None:
+    interviewer = headers()
+    admin = headers("admin")
+    user_id = create_profile(client, interviewer, profile)["user_id"]
+
+    assert client.get("/v1/admin/interviewers").status_code == 401
+    assert client.get("/v1/admin/interviewers", headers=headers("candidate")).status_code == 403
+    assert client.get("/v1/admin/interviewers", headers=interviewer).status_code == 403
+    pending = client.get("/v1/admin/interviewers?verification_status=pending", headers=admin)
+    assert pending.status_code == 200
+    assert user_id in {item["user_id"] for item in pending.json()}
 
 
 def test_rejection_requires_reason_and_valid_transition(
