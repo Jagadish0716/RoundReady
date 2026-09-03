@@ -1,0 +1,25 @@
+# Chart: eks/aws-load-balancer-controller 1.14.1
+# Application: AWS Load Balancer Controller v2.14.1
+image:
+  repository: public.ecr.aws/eks/aws-load-balancer-controller
+  tag: v2.14.1
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+  annotations: {}
+  automountServiceAccountToken: true
+
+defaultTargetType: ip
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false

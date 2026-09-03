@@ -30,7 +30,7 @@ resource "aws_subnet" "public" {
 
   vpc_id                  = aws_vpc.this.id
   availability_zone       = each.key
-  cidr_block              = cidrsubnet(var.vpc_cidr, 4, each.value)
+  cidr_block              = cidrsubnet(var.vpc_cidr, 5, each.value)
   map_public_ip_on_launch = false
 
   tags = merge(var.common_tags, {
@@ -44,7 +44,7 @@ resource "aws_subnet" "private_app" {
 
   vpc_id            = aws_vpc.this.id
   availability_zone = each.key
-  cidr_block        = cidrsubnet(var.vpc_cidr, 4, var.az_count + each.value)
+  cidr_block        = cidrsubnet(var.vpc_cidr, 5, var.az_count + each.value)
 
   tags = merge(var.common_tags, {
     Name                              = "${var.name_prefix}-private-app-${each.key}"
@@ -57,7 +57,7 @@ resource "aws_subnet" "private_data" {
 
   vpc_id            = aws_vpc.this.id
   availability_zone = each.key
-  cidr_block        = cidrsubnet(var.vpc_cidr, 4, 2 * var.az_count + each.value)
+  cidr_block        = cidrsubnet(var.vpc_cidr, 5, 2 * var.az_count + each.value)
 
   tags = merge(var.common_tags, {
     Name = "${var.name_prefix}-private-data-${each.key}"

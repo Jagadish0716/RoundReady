@@ -56,6 +56,74 @@ for Redis TLS and `amqps://` for RabbitMQ TLS. Clients enforce bounded connectio
 timeouts, Redis health checks, and RabbitMQ reconnect backoff. Redis-dependent API readiness
 checks include a Redis ping; liveness remains independent of dependencies.
 
+AWS environments use private ElastiCache Valkey-compatible endpoints and private Amazon MQ
+RabbitMQ endpoints. Terraform generates their credentials and stores them in Secrets Manager;
+plaintext credentials are never output. Because both managed-service APIs require credential
+values during provisioning, those values remain sensitive Terraform state. The S3 backend must be
+encrypted and access restricted to infrastructure operators. Future EKS workloads will retrieve
+credentials through a least-privilege Pod Identity plus CSI/external-secret mechanism; Kubernetes
+secret delivery is intentionally deferred.
+
+Runtime configuration must construct authenticated `rediss://` and `amqps://` URLs from the
+private endpoints and injected secrets. Do not fall back to plaintext protocols. Redis is used only
+for ephemeral coordination; RabbitMQ remains the durable asynchronous transport and application
+code continues to declare its exchange, queue, retry, and dead-letter topology.
+
+## AWS workload identity and secret ownership
+
+Production secret delivery follows this path:
+
+```text
+provider operator or database bootstrap
+  -> environment-specific AWS Secrets Manager secret
+  -> exact secret ARN in one service IAM policy
+  -> EKS Pod Identity association
+  -> matching Kubernetes ServiceAccount
+  -> workload runtime configuration
+```
+
+Terraform creates secret containers for each service database, JWT signing and verification,
+gateway identity, notification-to-user internal authentication, Razorpay, LiveKit, Resend, and Meta
+WhatsApp. It creates no placeholder secret versions and never retrieves their values. Provider
+operators populate provider bundles; controlled database bootstrap populates service database
+credentials. Public endpoints, issuer names, TTLs, queue names, and other non-secret configuration
+remain normal runtime configuration rather than Secrets Manager values.
+
+Workload access is service-specific:
+
+- API gateway: JWT verification, gateway identity, and Redis credentials.
+- Auth: auth database, JWT signing/verification, gateway identity, and RabbitMQ credentials.
+- User: user database, gateway identity, and notification-to-user internal credential.
+- Interviewer: interviewer database, gateway identity, and RabbitMQ credentials.
+- Booking: booking database, gateway identity, Redis, and RabbitMQ credentials.
+- Payment: payment database, gateway identity, Razorpay, and RabbitMQ credentials.
+- Interview: interview database, gateway identity, LiveKit, and RabbitMQ credentials.
+- Notification: notification database, both internal trust credentials, Resend, Meta WhatsApp, and
+  RabbitMQ credentials.
+
+Each IAM role trusts only `pods.eks.amazonaws.com` and the exact EKS cluster ARN, configured
+namespace, and ServiceAccount session tags. Its policy grants only `DescribeSecret` and
+`GetSecretValue` for its listed ARNs. There are no application IAM users, access keys, shared
+workload roles, wildcard secret permissions, or EC2 trust. AWS-side Pod Identity associations may
+exist before ServiceAccounts; future Kubernetes deployment must create the exact names and install
+the Pod Identity Agent.
+
+The RDS master secret is exclusively for controlled bootstrap and is not granted to application
+roles. Bootstrap creates the seven logical databases and isolated roles, stores each service URL in
+its own empty Terraform-created secret container, runs Alembic once, and only then deploys workloads.
+Terraform never runs SQL or stores those service passwords.
+
+Terraform state is not the application secret-delivery mechanism. Redis and RabbitMQ provisioning
+APIs require generated credentials in Terraform state, so the remote S3 state must be encrypted and
+restricted to infrastructure operators; plaintext credentials must never be output or logged.
+Runtime workloads resolve Secrets Manager values using temporary Pod Identity credentials rather
+than baking secrets into images or manifests.
+
+Rotation remains coordinated rather than automatic in this phase. Provider credentials follow the
+provider's rotation process; database roles rotate with service connection rollout; Redis AUTH uses
+the supported staged token process; RabbitMQ rotation updates the broker and secret together before
+consumers are restarted. Automatic rotation Lambdas are intentionally deferred.
+
 The gateway's production `CORS_ORIGINS` must be a non-empty list of exact HTTPS frontend
 origins; wildcard and localhost origins are rejected. `CORS_ALLOW_CREDENTIALS` is explicit and
 must match the frontend authentication design. `HSTS_ENABLED` should be enabled only when the

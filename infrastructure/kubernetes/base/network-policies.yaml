@@ -1,0 +1,68 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  labels:
+    app.kubernetes.io/name: default-deny-ingress
+    app.kubernetes.io/component: network-security
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-api-gateway-to-backends
+  labels:
+    app.kubernetes.io/name: allow-api-gateway-to-backends
+    app.kubernetes.io/component: network-security
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - auth-service
+          - user-service
+          - interviewer-service
+          - booking-service
+          - payment-service
+          - interview-service
+          - notification-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-gateway
+      ports:
+        - {port: 8000, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-notification-to-user-service
+  labels:
+    app.kubernetes.io/name: allow-notification-to-user-service
+    app.kubernetes.io/component: network-security
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: user-service
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              roundready.io/service: notification-service
+      ports:
+        - {port: 8000, protocol: TCP}

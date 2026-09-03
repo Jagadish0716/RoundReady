@@ -1,0 +1,331 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  labels: &gateway-labels
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/workload-kind: http
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy: &rolling
+    type: RollingUpdate
+    rollingUpdate: {maxUnavailable: 0, maxSurge: 1}
+  selector:
+    matchLabels: {app.kubernetes.io/name: api-gateway}
+  template:
+    metadata:
+      labels: *gateway-labels
+    spec: &gateway-pod
+      serviceAccountName: api-gateway
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext: &pod-security
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: api-gateway
+          image: roundready/api-gateway:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8000, protocol: TCP}]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          env:
+            - {name: AUTH_SERVICE_URL, value: "http://auth-service:8000"}
+            - {name: USER_SERVICE_URL, value: "http://user-service:8000"}
+            - {name: INTERVIEWER_SERVICE_URL, value: "http://interviewer-service:8000"}
+            - {name: BOOKING_SERVICE_URL, value: "http://booking-service:8000"}
+            - {name: PAYMENT_SERVICE_URL, value: "http://payment-service:8000"}
+            - {name: INTERVIEW_SERVICE_URL, value: "http://interview-service:8000"}
+            - {name: NOTIFICATION_SERVICE_URL, value: "http://notification-service:8000"}
+          resources: &http-resources
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+          securityContext: &container-security
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          startupProbe: &startup-probe
+            httpGet: {path: /health, port: http}
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 30
+          readinessProbe: &readiness-probe
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe: &liveness-probe
+            httpGet: {path: /health, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts: &tmp-mount
+            - {name: tmp, mountPath: /tmp}
+      volumes: &tmp-volume
+        - name: tmp
+          emptyDir: {sizeLimit: 64Mi}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  labels: &auth-labels
+    app.kubernetes.io/name: auth-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/workload-kind: http
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector: {matchLabels: {app.kubernetes.io/name: auth-service}}
+  template:
+    metadata: {labels: *auth-labels}
+    spec:
+      serviceAccountName: auth-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: auth-service
+          image: roundready/auth-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8000, protocol: TCP}]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          startupProbe: {httpGet: {path: /health, port: http}, periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /ready, port: http}, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3}
+          livenessProbe: {httpGet: {path: /health, port: http}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  labels: &user-labels
+    app.kubernetes.io/name: user-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/workload-kind: http
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector: {matchLabels: {app.kubernetes.io/name: user-service}}
+  template:
+    metadata: {labels: *user-labels}
+    spec:
+      serviceAccountName: user-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: user-service
+          image: roundready/user-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8000, protocol: TCP}]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          startupProbe: {httpGet: {path: /health, port: http}, periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /ready, port: http}, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3}
+          livenessProbe: {httpGet: {path: /health, port: http}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: interviewer-service
+  labels: &interviewer-labels
+    app.kubernetes.io/name: interviewer-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/workload-kind: http
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector: {matchLabels: {app.kubernetes.io/name: interviewer-service}}
+  template:
+    metadata: {labels: *interviewer-labels}
+    spec:
+      serviceAccountName: interviewer-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: interviewer-service
+          image: roundready/interviewer-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8000, protocol: TCP}]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          startupProbe: {httpGet: {path: /health, port: http}, periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /ready, port: http}, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3}
+          livenessProbe: {httpGet: {path: /health, port: http}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-service
+  labels: &booking-labels
+    app.kubernetes.io/name: booking-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/workload-kind: http
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector: {matchLabels: {app.kubernetes.io/name: booking-service}}
+  template:
+    metadata: {labels: *booking-labels}
+    spec:
+      serviceAccountName: booking-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: booking-service
+          image: roundready/booking-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8000, protocol: TCP}]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          startupProbe: {httpGet: {path: /health, port: http}, periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /ready, port: http}, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3}
+          livenessProbe: {httpGet: {path: /health, port: http}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-service
+  labels: &payment-labels
+    app.kubernetes.io/name: payment-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/workload-kind: http
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector: {matchLabels: {app.kubernetes.io/name: payment-service}}
+  template:
+    metadata: {labels: *payment-labels}
+    spec:
+      serviceAccountName: payment-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: payment-service
+          image: roundready/payment-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8000, protocol: TCP}]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          env:
+            - {name: PAYMENT_PROVIDER, value: razorpay}
+            - {name: RAZORPAY_TEST_MODE, value: "false"}
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          startupProbe: {httpGet: {path: /health, port: http}, periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /ready, port: http}, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3}
+          livenessProbe: {httpGet: {path: /health, port: http}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: interview-service
+  labels: &interview-labels
+    app.kubernetes.io/name: interview-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/workload-kind: http
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector: {matchLabels: {app.kubernetes.io/name: interview-service}}
+  template:
+    metadata: {labels: *interview-labels}
+    spec:
+      serviceAccountName: interview-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: interview-service
+          image: roundready/interview-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8000, protocol: TCP}]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          env:
+            - {name: VIDEO_PROVIDER, value: livekit}
+            - {name: LIVEKIT_TEST_MODE, value: "false"}
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          startupProbe: {httpGet: {path: /health, port: http}, periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /ready, port: http}, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3}
+          livenessProbe: {httpGet: {path: /health, port: http}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  labels: &notification-labels
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/component: backend
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/workload-kind: http
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  strategy: {type: RollingUpdate, rollingUpdate: {maxUnavailable: 0, maxSurge: 1}}
+  selector: {matchLabels: {app.kubernetes.io/name: notification-service}}
+  template:
+    metadata: {labels: *notification-labels}
+    spec:
+      serviceAccountName: notification-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 30
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: notification-service
+          image: roundready/notification-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          ports: [{name: http, containerPort: 8000, protocol: TCP}]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          env:
+            - {name: USER_SERVICE_URL, value: "http://user-service:8000"}
+            - {name: EMAIL_PROVIDER, value: resend}
+            - {name: WHATSAPP_PROVIDER, value: meta}
+          resources: {requests: {cpu: 100m, memory: 128Mi}, limits: {cpu: 500m, memory: 512Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          startupProbe: {httpGet: {path: /health, port: http}, periodSeconds: 5, timeoutSeconds: 2, failureThreshold: 30}
+          readinessProbe: {httpGet: {path: /ready, port: http}, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 3}
+          livenessProbe: {httpGet: {path: /health, port: http}, periodSeconds: 20, timeoutSeconds: 3, failureThreshold: 3}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]

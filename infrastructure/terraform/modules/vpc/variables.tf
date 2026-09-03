@@ -6,6 +6,11 @@ variable "name_prefix" {
 variable "vpc_cidr" {
   description = "IPv4 CIDR for the VPC."
   type        = string
+
+  validation {
+    condition     = can(cidrsubnet(var.vpc_cidr, 5, 17))
+    error_message = "vpc_cidr must be large enough for the public, application, and data subnet tiers."
+  }
 }
 
 variable "az_count" {

@@ -5,6 +5,48 @@ Each persistent RoundReady service owns a separate PostgreSQL database and recei
 must be injected at runtime, use the `postgresql+asyncpg` driver, include non-development
 credentials, and point to non-local infrastructure. Never reuse `.env.example` credentials.
 
+## Amazon RDS topology
+
+Each environment uses one private Amazon RDS PostgreSQL instance to control early-stage cost while
+retaining service ownership through separate logical databases and roles. The expected databases
+are `roundready_auth`, `roundready_user`, `roundready_interviewer`, `roundready_booking`,
+`roundready_payment`, `roundready_interview`, and `roundready_notification`. Every service receives
+a distinct login that owns only its database; application processes never use the RDS master user.
+Services can move to dedicated instances later if measured scale, compliance, or stronger physical
+isolation requires it.
+
+RDS is placed only in private data subnets and is never publicly accessible. Its security group
+allows PostgreSQL 5432 only from the EKS application security group, with no CIDR-based public or
+VPC-wide ingress. The current boundary is the EKS cluster security group associated with managed
+nodes; pod-level security groups may narrow this further when Kubernetes workloads are introduced.
+Applications use the RDS DNS endpoint, never an instance IP.
+
+Terraform enables encrypted gp3 storage with autoscaling headroom and a rotating KMS key. RDS
+generates and maintains the master password in Secrets Manager. Terraform exposes only the secret
+ARN and never reads the credential value. A controlled bootstrap process retrieves that credential
+at runtime; service passwords must likewise be generated and stored outside Terraform state.
+
+The deployment order is:
+
+1. Provision the RDS instance.
+2. Securely retrieve the master credential for a one-time controlled bootstrap job.
+3. Create each logical database and its isolated owner role; revoke unintended cross-database access.
+4. Populate each service's environment-specific Terraform-created Secrets Manager container with
+   only that service URL/credential.
+5. Run each service's `alembic upgrade head` exactly once.
+6. Deploy application replicas and verify their `/ready` endpoints.
+
+Production uses Multi-AZ failover, deletion protection, 14-day automated backup retention, and a
+required final snapshot. Development uses a smaller single-AZ instance, short retention, and may
+skip its final snapshot. Application connection recovery after an RDS failover remains bounded by
+the existing pool pre-ping, connection timeout, and retry behavior; `/ready` fails while PostgreSQL
+is unavailable. Snapshots complement, but do not replace, tested logical restore procedures.
+
+PostgreSQL log export, Enhanced Monitoring, and Performance Insights are enabled selectively by
+environment to balance visibility with cost. Statement-level verbose logging is intentionally not
+enabled. Major cost drivers are the instance class, Multi-AZ standby, gp3 allocation/autoscaling,
+retained backup storage, monitoring retention, and cross-AZ/data-transfer traffic.
+
 ## Connections and pools
 
 Every service uses the same bounded SQLAlchemy engine settings, configurable independently per

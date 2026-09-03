@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+labels:
+  - pairs:
+      roundready.io/environment: dev
+    includeSelectors: false
+
+patches:
+  - target:
+      version: v1
+      kind: ConfigMap
+      name: roundready-runtime-config
+    patch: |-
+      - op: replace
+        path: /data/ENVIRONMENT
+        value: development
+  - target: {group: apps, version: v1, kind: Deployment, name: payment-service}
+    patch: &development-payment |-
+      - {op: replace, path: /spec/template/spec/containers/0/env/0/value, value: development}
+      - {op: replace, path: /spec/template/spec/containers/0/env/1/value, value: "true"}
+  - target: {group: apps, version: v1, kind: Deployment, name: payment-outbox-worker}
+    patch: *development-payment
+  - target: {group: apps, version: v1, kind: Deployment, name: interview-service}
+    patch: &development-video |-
+      - {op: replace, path: /spec/template/spec/containers/0/env/0/value, value: development}
+      - {op: replace, path: /spec/template/spec/containers/0/env/1/value, value: "true"}
+  - target: {group: apps, version: v1, kind: Deployment, name: interview-event-worker}
+    patch: *development-video
+  - target: {group: apps, version: v1, kind: Deployment, name: interview-outbox-worker}
+    patch: *development-video
+  - target: {group: apps, version: v1, kind: Deployment, name: notification-service}
+    patch: &development-notifications |-
+      - {op: replace, path: /spec/template/spec/containers/0/env/1/value, value: development}
+      - {op: replace, path: /spec/template/spec/containers/0/env/2/value, value: development}
+  - target: {group: apps, version: v1, kind: Deployment, name: notification-worker}
+    patch: *development-notifications

@@ -1,0 +1,283 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-outbox-worker
+  labels: &auth-worker-labels
+    app.kubernetes.io/name: auth-outbox-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: auth-service
+    roundready.io/workload-kind: worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector: {matchLabels: {app.kubernetes.io/name: auth-outbox-worker}}
+  template:
+    metadata: {labels: *auth-worker-labels}
+    spec:
+      serviceAccountName: auth-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 60
+      securityContext: &worker-pod-security
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: worker
+          image: roundready/auth-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, app.workers.outbox]
+          envFrom: &runtime-config [{configMapRef: {name: roundready-runtime-config}}]
+          resources: &worker-resources
+            requests: {cpu: 50m, memory: 96Mi}
+            limits: {cpu: 250m, memory: 256Mi}
+          securityContext: &worker-container-security
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+          volumeMounts: &worker-tmp-mount [{name: tmp, mountPath: /tmp}]
+      volumes: &worker-tmp-volume [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: interviewer-outbox-worker
+  labels: &interviewer-worker-labels
+    app.kubernetes.io/name: interviewer-outbox-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: interviewer-service
+    roundready.io/workload-kind: worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector: {matchLabels: {app.kubernetes.io/name: interviewer-outbox-worker}}
+  template:
+    metadata: {labels: *interviewer-worker-labels}
+    spec:
+      serviceAccountName: interviewer-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 60
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: roundready/interviewer-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, app.workers.outbox]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          resources: {requests: {cpu: 50m, memory: 96Mi}, limits: {cpu: 250m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-maintenance-worker
+  labels: &booking-maintenance-labels
+    app.kubernetes.io/name: booking-maintenance-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: booking-service
+    roundready.io/workload-kind: worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector: {matchLabels: {app.kubernetes.io/name: booking-maintenance-worker}}
+  template:
+    metadata: {labels: *booking-maintenance-labels}
+    spec:
+      serviceAccountName: booking-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 60
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: roundready/booking-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, app.workers.maintenance]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          resources: {requests: {cpu: 50m, memory: 96Mi}, limits: {cpu: 250m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: booking-event-worker
+  labels: &booking-event-labels
+    app.kubernetes.io/name: booking-event-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: booking-service
+    roundready.io/workload-kind: worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector: {matchLabels: {app.kubernetes.io/name: booking-event-worker}}
+  template:
+    metadata: {labels: *booking-event-labels}
+    spec:
+      serviceAccountName: booking-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 60
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: roundready/booking-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, app.workers.events]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          resources: {requests: {cpu: 50m, memory: 96Mi}, limits: {cpu: 250m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-outbox-worker
+  labels: &payment-worker-labels
+    app.kubernetes.io/name: payment-outbox-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: payment-service
+    roundready.io/workload-kind: worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector: {matchLabels: {app.kubernetes.io/name: payment-outbox-worker}}
+  template:
+    metadata: {labels: *payment-worker-labels}
+    spec:
+      serviceAccountName: payment-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 60
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: roundready/payment-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, app.workers.outbox]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          env:
+            - {name: PAYMENT_PROVIDER, value: razorpay}
+            - {name: RAZORPAY_TEST_MODE, value: "false"}
+          resources: {requests: {cpu: 50m, memory: 96Mi}, limits: {cpu: 250m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: interview-event-worker
+  labels: &interview-event-labels
+    app.kubernetes.io/name: interview-event-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: interview-service
+    roundready.io/workload-kind: worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector: {matchLabels: {app.kubernetes.io/name: interview-event-worker}}
+  template:
+    metadata: {labels: *interview-event-labels}
+    spec:
+      serviceAccountName: interview-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 60
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: roundready/interview-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, app.workers.events]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          env:
+            - {name: VIDEO_PROVIDER, value: livekit}
+            - {name: LIVEKIT_TEST_MODE, value: "false"}
+          resources: {requests: {cpu: 50m, memory: 96Mi}, limits: {cpu: 250m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: interview-outbox-worker
+  labels: &interview-outbox-labels
+    app.kubernetes.io/name: interview-outbox-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: interview-service
+    roundready.io/workload-kind: worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector: {matchLabels: {app.kubernetes.io/name: interview-outbox-worker}}
+  template:
+    metadata: {labels: *interview-outbox-labels}
+    spec:
+      serviceAccountName: interview-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 60
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: roundready/interview-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, app.workers.outbox]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          env:
+            - {name: VIDEO_PROVIDER, value: livekit}
+            - {name: LIVEKIT_TEST_MODE, value: "false"}
+          resources: {requests: {cpu: 50m, memory: 96Mi}, limits: {cpu: 250m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-worker
+  labels: &notification-worker-labels
+    app.kubernetes.io/name: notification-worker
+    app.kubernetes.io/component: worker
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: notification-service
+    roundready.io/workload-kind: worker
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector: {matchLabels: {app.kubernetes.io/name: notification-worker}}
+  template:
+    metadata: {labels: *notification-worker-labels}
+    spec:
+      serviceAccountName: notification-service
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: 60
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: worker
+          image: roundready/notification-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          command: [python, -m, app.workers.consumer]
+          envFrom: [{configMapRef: {name: roundready-runtime-config}}]
+          env:
+            - {name: USER_SERVICE_URL, value: "http://user-service:8000"}
+            - {name: EMAIL_PROVIDER, value: resend}
+            - {name: WHATSAPP_PROVIDER, value: meta}
+          resources: {requests: {cpu: 50m, memory: 96Mi}, limits: {cpu: 250m, memory: 256Mi}}
+          securityContext: {allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: {drop: [ALL]}}
+          volumeMounts: [{name: tmp, mountPath: /tmp}]
+      volumes: [{name: tmp, emptyDir: {sizeLimit: 64Mi}}]

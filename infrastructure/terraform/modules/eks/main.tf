@@ -15,9 +15,9 @@ resource "aws_iam_role" "cluster" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
+      Effect    = "Allow"
       Principal = { Service = "eks.amazonaws.com" }
-      Action = "sts:AssumeRole"
+      Action    = "sts:AssumeRole"
     }]
   })
 
@@ -35,8 +35,8 @@ resource "aws_iam_role_policy_attachment" "cluster_vpc_controller" {
 }
 
 resource "aws_kms_key" "secrets" {
-  description         = "${var.name_prefix} EKS Kubernetes secrets encryption"
-  enable_key_rotation = true
+  description             = "${var.name_prefix} EKS Kubernetes secrets encryption"
+  enable_key_rotation     = true
   deletion_window_in_days = 30
 
   tags = merge(var.common_tags, { Name = "${var.name_prefix}-eks-secrets" })
@@ -113,9 +113,9 @@ resource "aws_iam_role" "node" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
+      Effect    = "Allow"
       Principal = { Service = "ec2.amazonaws.com" }
-      Action = "sts:AssumeRole"
+      Action    = "sts:AssumeRole"
     }]
   })
 

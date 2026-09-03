@@ -13,9 +13,9 @@ resource "aws_iam_role" "flow_logs" {
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{
-      Effect = "Allow"
+      Effect    = "Allow"
       Principal = { Service = "vpc-flow-logs.amazonaws.com" }
-      Action = "sts:AssumeRole"
+      Action    = "sts:AssumeRole"
     }]
   })
 
@@ -42,11 +42,11 @@ resource "aws_iam_role_policy" "flow_logs" {
 }
 
 resource "aws_flow_log" "this" {
-  count                = var.enable_flow_logs ? 1 : 0
-  iam_role_arn         = aws_iam_role.flow_logs[0].arn
-  log_destination      = aws_cloudwatch_log_group.flow_logs[0].arn
-  traffic_type         = "ALL"
-  vpc_id               = aws_vpc.this.id
+  count                    = var.enable_flow_logs ? 1 : 0
+  iam_role_arn             = aws_iam_role.flow_logs[0].arn
+  log_destination          = aws_cloudwatch_log_group.flow_logs[0].arn
+  traffic_type             = "ALL"
+  vpc_id                   = aws_vpc.this.id
   max_aggregation_interval = 60
 
   tags = merge(var.common_tags, { Name = "${var.name_prefix}-vpc-flow-log" })

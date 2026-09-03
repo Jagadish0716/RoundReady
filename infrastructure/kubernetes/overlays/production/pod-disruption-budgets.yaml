@@ -1,0 +1,80 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend
+  labels: {app.kubernetes.io/name: frontend, app.kubernetes.io/component: availability, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app.kubernetes.io/name: frontend}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-gateway
+  labels: {app.kubernetes.io/name: api-gateway, app.kubernetes.io/component: availability, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app.kubernetes.io/name: api-gateway}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: auth-service
+  labels: {app.kubernetes.io/name: auth-service, app.kubernetes.io/component: availability, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app.kubernetes.io/name: auth-service}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: user-service
+  labels: {app.kubernetes.io/name: user-service, app.kubernetes.io/component: availability, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app.kubernetes.io/name: user-service}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: interviewer-service
+  labels: {app.kubernetes.io/name: interviewer-service, app.kubernetes.io/component: availability, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app.kubernetes.io/name: interviewer-service}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: booking-service
+  labels: {app.kubernetes.io/name: booking-service, app.kubernetes.io/component: availability, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app.kubernetes.io/name: booking-service}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: payment-service
+  labels: {app.kubernetes.io/name: payment-service, app.kubernetes.io/component: availability, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app.kubernetes.io/name: payment-service}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: interview-service
+  labels: {app.kubernetes.io/name: interview-service, app.kubernetes.io/component: availability, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app.kubernetes.io/name: interview-service}}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notification-service
+  labels: {app.kubernetes.io/name: notification-service, app.kubernetes.io/component: availability, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  minAvailable: 1
+  selector: {matchLabels: {app.kubernetes.io/name: notification-service}}
