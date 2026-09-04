@@ -76,14 +76,16 @@ developer or future CI -> immutable SHA/release image -> private ECR -> future E
 Vulnerability findings require review and policy; scanning does not guarantee that an image is
 safe. Production retains 30 tagged images per component and disables forced deletion.
 
-## Future public ingress deployment order
+## Public ingress deployment order
 
 Terraform first validates the existing Route 53 zone, completes ACM DNS validation, and exposes the
 certificate and Load Balancer Controller IAM role ARNs. Kubernetes deployment then installs the EKS
 Pod Identity Agent and AWS Load Balancer Controller, creates the controller ServiceAccount matching
 Terraform's Pod Identity association, and applies the frontend/API-gateway Ingress. Only after the controller has
 created the ALB should deployment automation create Route 53 alias records using the real ALB DNS
-name and canonical zone ID.
+name and canonical zone ID. Set Terraform's `public_alb_dns_name` and
+`public_alb_zone_id` together to create the two alias records. The complete
+fail-closed render and handoff procedure is in `docs/public-ingress.md`.
 
 The Ingress must use public subnets, HTTPS 443, the Terraform ACM certificate, a modern AWS TLS
 policy, and `/ready` target checks. Optional port 80 is redirect-only. It routes only the configured

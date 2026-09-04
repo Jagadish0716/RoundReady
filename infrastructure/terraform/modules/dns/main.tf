@@ -13,7 +13,15 @@ data "aws_route53_zone" "existing" {
 }
 
 locals {
-  hosted_zone_id = var.enabled ? coalesce(var.hosted_zone_id, try(data.aws_route53_zone.existing[0].zone_id, null)) : null
+  hosted_zone_id  = var.enabled ? coalesce(var.hosted_zone_id, try(data.aws_route53_zone.existing[0].zone_id, null)) : null
+  alb_alias_ready = var.enabled && var.alb_dns_name != null && var.alb_zone_id != null
+}
+
+check "alb_alias_inputs" {
+  assert {
+    condition     = (var.alb_dns_name == null) == (var.alb_zone_id == null)
+    error_message = "alb_dns_name and alb_zone_id must be supplied together."
+  }
 }
 
 resource "aws_acm_certificate" "this" {
@@ -64,4 +72,21 @@ resource "aws_acm_certificate_validation" "this" {
 
   certificate_arn         = aws_acm_certificate.this[0].arn
   validation_record_fqdns = [for record in aws_route53_record.certificate_validation : record.fqdn]
+}
+
+resource "aws_route53_record" "public_alias" {
+  for_each = local.alb_alias_ready ? {
+    frontend = coalesce(var.frontend_domain, "")
+    api      = coalesce(var.api_domain, "")
+  } : {}
+
+  zone_id = local.hosted_zone_id
+  name    = each.value
+  type    = "A"
+
+  alias {
+    name                   = var.alb_dns_name
+    zone_id                = var.alb_zone_id
+    evaluate_target_health = true
+  }
 }

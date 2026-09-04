@@ -17,3 +17,8 @@ output "api_hostname" {
   description = "Configured public API gateway hostname."
   value       = var.enabled ? var.api_domain : null
 }
+
+output "public_alias_fqdns" {
+  description = "Route 53 alias FQDNs created after the controller reports the public ALB metadata."
+  value       = { for key, record in aws_route53_record.public_alias : key => record.fqdn }
+}

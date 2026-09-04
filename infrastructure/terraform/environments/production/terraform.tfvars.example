@@ -48,6 +48,9 @@ hosted_zone_name = null
 # Explicit production hostnames are required before planning this environment.
 frontend_domain = null
 api_domain = null
+# Populate both only after the Kubernetes controller creates the shared public ALB.
+public_alb_dns_name = null
+public_alb_zone_id = null
 application_namespace = "roundready"
 create_pod_identity_associations = true
 ecr_image_tag_mutability = "IMMUTABLE"

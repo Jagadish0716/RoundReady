@@ -4,6 +4,9 @@ kind: Kustomization
 resources:
   - ../../base
   - pod-disruption-budgets.yaml
+  - public-ingress-config.yaml
+  - public-ingress.yaml
+  - public-ingress-network-policy.yaml
 
 labels:
   - pairs:
@@ -11,6 +14,24 @@ labels:
     includeSelectors: false
 
 patches:
+  - target: {version: v1, kind: Service, name: frontend}
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          alb.ingress.kubernetes.io/healthcheck-path: /
+          alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+          alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+          alb.ingress.kubernetes.io/success-codes: "200"
+  - target: {version: v1, kind: Service, name: api-gateway}
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          alb.ingress.kubernetes.io/healthcheck-path: /ready
+          alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+          alb.ingress.kubernetes.io/healthcheck-port: traffic-port
+          alb.ingress.kubernetes.io/success-codes: "200"
   - target:
       group: apps
       version: v1
@@ -39,3 +60,24 @@ patches:
                 roundready.io/workload-kind: http
             matchLabelKeys:
               - app.kubernetes.io/name
+
+replacements:
+  - source: {kind: ConfigMap, name: roundready-public-ingress, fieldPath: data.FRONTEND_HOST}
+    targets:
+      - select: {group: networking.k8s.io, version: v1, kind: Ingress, name: roundready-public}
+        fieldPaths: [spec.rules.0.host]
+  - source: {kind: ConfigMap, name: roundready-public-ingress, fieldPath: data.API_HOST}
+    targets:
+      - select: {group: networking.k8s.io, version: v1, kind: Ingress, name: roundready-public}
+        fieldPaths: [spec.rules.1.host]
+  - source: {kind: ConfigMap, name: roundready-public-ingress, fieldPath: data.ACM_CERTIFICATE_ARN}
+    targets:
+      - select: {group: networking.k8s.io, version: v1, kind: Ingress, name: roundready-public}
+        fieldPaths: [metadata.annotations.alb\.ingress\.kubernetes\.io/certificate-arn]
+        options: {delimiter: "/", index: 0}
+  - source: {kind: ConfigMap, name: roundready-public-ingress, fieldPath: data.VPC_CIDR}
+    targets:
+      - select: {group: networking.k8s.io, version: v1, kind: NetworkPolicy, name: allow-public-alb-to-frontend}
+        fieldPaths: [spec.ingress.0.from.0.ipBlock.cidr]
+      - select: {group: networking.k8s.io, version: v1, kind: NetworkPolicy, name: allow-public-alb-to-api-gateway}
+        fieldPaths: [spec.ingress.0.from.0.ipBlock.cidr]

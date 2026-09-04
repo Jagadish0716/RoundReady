@@ -36,6 +36,9 @@ The deployment order is:
 5. Run each service's `alembic upgrade head` exactly once.
 6. Deploy application replicas and verify their `/ready` endpoints.
 
+The concrete fail-closed bootstrap utility, secret contract, and Kubernetes
+migration Jobs are documented in `docs/database-bootstrap-and-migrations.md`.
+
 Production uses Multi-AZ failover, deletion protection, 14-day automated backup retention, and a
 required final snapshot. Development uses a smaller single-AZ instance, short retention, and may
 skip its final snapshot. Application connection recovery after an RDS failover remains bounded by

@@ -67,19 +67,19 @@ kubectl get pods -n kube-system -l app.kubernetes.io/name=aws-load-balancer-cont
 kubectl logs -n kube-system deployment/aws-load-balancer-controller
 ```
 
-## Deferred ingress boundary
+## Application ingress boundary
 
-No Ingress or ALB is created here. A later shared Ingress will produce:
+The controller installation creates no ALB by itself. The production Kustomize
+overlay's shared Ingress produces:
 
 ```text
 Internet -> public ALB -> frontend/api-gateway ClusterIP Services
 ```
 
-It will reference the environment ACM certificate ARN, enforce HTTPS, select
-public ELB-tagged subnets, and use `ip` targets. Backend services remain private.
-14I.9g must add narrow ALB-to-frontend/API-gateway NetworkPolicy allowances based
-on the final controller target/security-group model; the current RoundReady
-default-deny policy is intentionally unchanged.
+It references the environment ACM certificate ARN, enforces HTTPS, discovers
+public ELB-tagged subnets, and uses `ip` targets. Backend services remain private.
+See `docs/public-ingress.md` for required inputs, validation, NetworkPolicy, and
+Route 53 handoff.
 
 Local rendering requires explicit non-secret values:
 

@@ -168,6 +168,11 @@ output "api_hostname" {
   value       = module.dns.api_hostname
 }
 
+output "public_alias_fqdns" {
+  description = "Frontend/API Route 53 aliases created after ALB reconciliation."
+  value       = module.dns.public_alias_fqdns
+}
+
 output "load_balancer_controller_iam_role_arn" {
   description = "IAM role for a future AWS Load Balancer Controller Pod Identity association."
   value       = module.alb.controller_iam_role_arn

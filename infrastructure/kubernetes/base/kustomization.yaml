@@ -12,3 +12,58 @@ resources:
   - worker-workloads.yaml
   - services.yaml
   - frontend-workload.yaml
+  - secret-provider-classes.yaml
+
+configurations:
+  - kustomizeconfig.yaml
+
+vars:
+  - name: SECRET_NAME_PREFIX
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: roundready-secret-identifiers
+    fieldref:
+      fieldpath: data.SECRET_NAME_PREFIX
+
+patches:
+  - target: {group: apps, version: v1, kind: Deployment, labelSelector: roundready.io/service=api-gateway}
+    patch: &api-gateway-secrets |-
+      - {op: add, path: /spec/template/spec/containers/0/envFrom/-, value: {secretRef: {name: api-gateway-runtime}}}
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: api-gateway-runtime}}}}
+  - target: {group: apps, version: v1, kind: Deployment, labelSelector: roundready.io/service=auth-service}
+    patch: &auth-service-secrets |-
+      - {op: add, path: /spec/template/spec/containers/0/envFrom/-, value: {secretRef: {name: auth-service-runtime}}}
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: auth-service-runtime}}}}
+  - target: {group: apps, version: v1, kind: Deployment, labelSelector: roundready.io/service=user-service}
+    patch: &user-service-secrets |-
+      - {op: add, path: /spec/template/spec/containers/0/envFrom/-, value: {secretRef: {name: user-service-runtime}}}
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: user-service-runtime}}}}
+  - target: {group: apps, version: v1, kind: Deployment, labelSelector: roundready.io/service=interviewer-service}
+    patch: &interviewer-service-secrets |-
+      - {op: add, path: /spec/template/spec/containers/0/envFrom/-, value: {secretRef: {name: interviewer-service-runtime}}}
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: interviewer-service-runtime}}}}
+  - target: {group: apps, version: v1, kind: Deployment, labelSelector: roundready.io/service=booking-service}
+    patch: &booking-service-secrets |-
+      - {op: add, path: /spec/template/spec/containers/0/envFrom/-, value: {secretRef: {name: booking-service-runtime}}}
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: booking-service-runtime}}}}
+  - target: {group: apps, version: v1, kind: Deployment, labelSelector: roundready.io/service=payment-service}
+    patch: &payment-service-secrets |-
+      - {op: add, path: /spec/template/spec/containers/0/envFrom/-, value: {secretRef: {name: payment-service-runtime}}}
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: payment-service-runtime}}}}
+  - target: {group: apps, version: v1, kind: Deployment, labelSelector: roundready.io/service=interview-service}
+    patch: &interview-service-secrets |-
+      - {op: add, path: /spec/template/spec/containers/0/envFrom/-, value: {secretRef: {name: interview-service-runtime}}}
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: interview-service-runtime}}}}
+  - target: {group: apps, version: v1, kind: Deployment, labelSelector: roundready.io/service=notification-service}
+    patch: &notification-service-secrets |-
+      - {op: add, path: /spec/template/spec/containers/0/envFrom/-, value: {secretRef: {name: notification-service-runtime}}}
+      - {op: add, path: /spec/template/spec/containers/0/volumeMounts/-, value: {name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}}
+      - {op: add, path: /spec/template/spec/volumes/-, value: {name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: notification-service-runtime}}}}

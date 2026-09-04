@@ -1,0 +1,3 @@
+varReference:
+  - path: spec/parameters/objects
+    kind: SecretProviderClass

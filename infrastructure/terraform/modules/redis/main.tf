@@ -58,7 +58,9 @@ resource "aws_secretsmanager_secret" "credentials" {
 resource "aws_secretsmanager_secret_version" "credentials" {
   secret_id = aws_secretsmanager_secret.credentials.id
   secret_string = jsonencode({
-    auth_token = random_password.auth_token.result
+    auth_token        = random_password.auth_token.result
+    redis_url         = "rediss://default:${urlencode(random_password.auth_token.result)}@${aws_elasticache_replication_group.this.primary_endpoint_address}:${aws_elasticache_replication_group.this.port}/0"
+    booking_redis_url = "rediss://default:${urlencode(random_password.auth_token.result)}@${aws_elasticache_replication_group.this.primary_endpoint_address}:${aws_elasticache_replication_group.this.port}/2"
   })
 }
 

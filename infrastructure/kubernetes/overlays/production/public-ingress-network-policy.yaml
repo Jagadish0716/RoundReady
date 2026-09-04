@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-public-alb-to-frontend
+  labels: {app.kubernetes.io/name: allow-public-alb-to-frontend, app.kubernetes.io/component: network-security, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: frontend}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: {cidr: REQUIRED_VPC_CIDR}
+      ports:
+        - {port: 3000, protocol: TCP}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-public-alb-to-api-gateway
+  labels: {app.kubernetes.io/name: allow-public-alb-to-api-gateway, app.kubernetes.io/component: network-security, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec:
+  podSelector:
+    matchLabels: {app.kubernetes.io/name: api-gateway}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - ipBlock: {cidr: REQUIRED_VPC_CIDR}
+      ports:
+        - {port: 8000, protocol: TCP}

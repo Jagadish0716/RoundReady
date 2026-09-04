@@ -1,0 +1,135 @@
+apiVersion: batch/v1
+kind: Job
+metadata: &auth-meta
+  name: auth-service-migration
+  labels: {app.kubernetes.io/name: auth-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+spec: &job-spec
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: auth-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: auth-service
+      automountServiceAccountToken: true
+      securityContext: &pod-security {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - name: migrate
+          image: roundready/auth-service:replace-with-immutable-id
+          imagePullPolicy: IfNotPresent
+          command: [alembic, -c, alembic.ini, upgrade, head]
+          envFrom: [{secretRef: {name: auth-service-migration}}]
+          resources: &resources {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 256Mi}}
+          securityContext: &container-security {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}
+          volumeMounts: &auth-mount [{name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}]
+      volumes: &auth-volume [{name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: auth-service-migration}}}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: user-service-migration, labels: {app.kubernetes.io/name: user-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}}
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {app.kubernetes.io/name: user-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready}}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: user-service
+      automountServiceAccountToken: true
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - {name: migrate, image: "roundready/user-service:replace-with-immutable-id", imagePullPolicy: IfNotPresent, command: [alembic, -c, alembic.ini, upgrade, head], envFrom: [{secretRef: {name: user-service-migration}}], resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 256Mi}}, securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}, volumeMounts: [{name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}]}
+      volumes: [{name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: user-service-migration}}}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: interviewer-service-migration, labels: {app.kubernetes.io/name: interviewer-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}}
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {app.kubernetes.io/name: interviewer-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready}}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: interviewer-service
+      automountServiceAccountToken: true
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - {name: migrate, image: "roundready/interviewer-service:replace-with-immutable-id", imagePullPolicy: IfNotPresent, command: [alembic, -c, alembic.ini, upgrade, head], envFrom: [{secretRef: {name: interviewer-service-migration}}], resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 256Mi}}, securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}, volumeMounts: [{name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}]}
+      volumes: [{name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: interviewer-service-migration}}}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: booking-service-migration, labels: {app.kubernetes.io/name: booking-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}}
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {app.kubernetes.io/name: booking-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready}}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: booking-service
+      automountServiceAccountToken: true
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - {name: migrate, image: "roundready/booking-service:replace-with-immutable-id", imagePullPolicy: IfNotPresent, command: [alembic, -c, alembic.ini, upgrade, head], envFrom: [{secretRef: {name: booking-service-migration}}], resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 256Mi}}, securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}, volumeMounts: [{name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}]}
+      volumes: [{name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: booking-service-migration}}}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: payment-service-migration, labels: {app.kubernetes.io/name: payment-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}}
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {app.kubernetes.io/name: payment-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready}}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: payment-service
+      automountServiceAccountToken: true
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - {name: migrate, image: "roundready/payment-service:replace-with-immutable-id", imagePullPolicy: IfNotPresent, command: [alembic, -c, alembic.ini, upgrade, head], envFrom: [{secretRef: {name: payment-service-migration}}], resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 256Mi}}, securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}, volumeMounts: [{name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}]}
+      volumes: [{name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: payment-service-migration}}}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: interview-service-migration, labels: {app.kubernetes.io/name: interview-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}}
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {app.kubernetes.io/name: interview-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready}}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: interview-service
+      automountServiceAccountToken: true
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - {name: migrate, image: "roundready/interview-service:replace-with-immutable-id", imagePullPolicy: IfNotPresent, command: [alembic, -c, alembic.ini, upgrade, head], envFrom: [{secretRef: {name: interview-service-migration}}], resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 256Mi}}, securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}, volumeMounts: [{name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}]}
+      volumes: [{name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: interview-service-migration}}}]
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: notification-service-migration, labels: {app.kubernetes.io/name: notification-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}}
+spec:
+  backoffLimit: 1
+  activeDeadlineSeconds: 900
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata: {labels: {app.kubernetes.io/name: notification-service, app.kubernetes.io/component: migration, app.kubernetes.io/part-of: roundready}}
+    spec:
+      restartPolicy: Never
+      serviceAccountName: notification-service
+      automountServiceAccountToken: true
+      securityContext: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+      containers:
+        - {name: migrate, image: "roundready/notification-service:replace-with-immutable-id", imagePullPolicy: IfNotPresent, command: [alembic, -c, alembic.ini, upgrade, head], envFrom: [{secretRef: {name: notification-service-migration}}], resources: {requests: {cpu: 25m, memory: 64Mi}, limits: {cpu: 250m, memory: 256Mi}}, securityContext: {allowPrivilegeEscalation: false, capabilities: {drop: [ALL]}, readOnlyRootFilesystem: true}, volumeMounts: [{name: runtime-secrets, mountPath: /mnt/secrets-store, readOnly: true}]}
+      volumes: [{name: runtime-secrets, csi: {driver: secrets-store.csi.k8s.io, readOnly: true, volumeAttributes: {secretProviderClass: notification-service-migration}}}]

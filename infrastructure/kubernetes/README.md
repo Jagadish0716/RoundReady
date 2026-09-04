@@ -2,7 +2,10 @@
 
 This directory defines the Kubernetes-side foundation and internal application
 workloads for RoundReady on EKS. It deliberately creates no public Ingress,
-migration or database-bootstrap Job, or observability component.
+database-bootstrap Job, or observability component. Explicit database migration
+Jobs live separately under `migrations/`.
+
+Use `docs/aws-deployment-runbook.md` as the authoritative deployment order.
 
 ## Layout and ownership
 
@@ -34,12 +37,15 @@ production application safeguards; the dev overlay selects development runtime
 and providers. Do not place passwords, JWT material, provider credentials,
 database URLs containing credentials, or other secrets in ConfigMaps.
 
-Secrets will be resolved at runtime from AWS Secrets Manager through each
-service's least-privilege EKS Pod Identity role. 14I.9e must add the chosen
-runtime integration and 14I.9f must add controlled bootstrap/migration execution.
-Until then these workloads are intentionally not runnable. Do not add Kubernetes `Secret` manifests,
-secret generators, plaintext environment values, or credentials baked into an
-image. Terraform state is not an application secret-delivery mechanism.
+Secrets are resolved from AWS Secrets Manager through each service's
+least-privilege EKS Pod Identity and the AWS Secrets Store CSI provider. Because
+applications require environment variables, the driver dynamically synchronizes
+service-owned Kubernetes Secrets; no values exist in Git. See
+`addons/secrets-store-csi/README.md` for lifecycle and installation requirements.
+Controlled bootstrap/migration execution is documented in
+`docs/database-bootstrap-and-migrations.md`. Do not add plaintext Secret
+manifests, secret generators, or credentials baked into images.
+Terraform state is not an application secret-delivery mechanism.
 
 ## Network topology
 
@@ -147,5 +153,15 @@ kustomize build infrastructure/kubernetes/overlays/production
 
 Before deployment, replace all image markers and validate runtime secret/config
 wiring. `kubectl kustomize` may be used when standalone Kustomize is unavailable.
-Do not apply these manifests until 14I.9e/14I.9f are complete and probe behavior
+Do not apply these manifests until runtime secrets have been populated,
+migrations have succeeded, immutable images are selected, and probe behavior
 has been validated for the target EKS networking mode.
+
+Render migration Jobs independently; they are intentionally excluded from the
+application overlays so deployment replicas cannot race schema changes:
+
+```bash
+kustomize build infrastructure/kubernetes/migrations/overlays/dev
+kustomize build infrastructure/kubernetes/migrations/overlays/staging
+kustomize build infrastructure/kubernetes/migrations/overlays/production
+```

@@ -1,0 +1,9 @@
+syncSecret:
+  enabled: true
+
+enableSecretRotation: true
+rotationPollInterval: 2m
+
+tokenRequests:
+  - audience: sts.amazonaws.com
+  - audience: pods.eks.amazonaws.com

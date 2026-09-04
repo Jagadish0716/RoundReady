@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: roundready-public-ingress
+  labels: {app.kubernetes.io/name: roundready-public-ingress, app.kubernetes.io/component: ingress-configuration, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+data:
+  FRONTEND_HOST: REQUIRED_FRONTEND_HOST
+  API_HOST: REQUIRED_API_HOST
+  ACM_CERTIFICATE_ARN: REQUIRED_ACM_CERTIFICATE_ARN
+  VPC_CIDR: REQUIRED_VPC_CIDR

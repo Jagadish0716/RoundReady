@@ -11,3 +11,15 @@ data:
   ENVIRONMENT: production
   LOG_LEVEL: INFO
   TELEMETRY_ENABLED: "true"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: roundready-secret-identifiers
+  labels:
+    app.kubernetes.io/name: roundready-secret-identifiers
+    app.kubernetes.io/component: configuration
+    app.kubernetes.io/part-of: roundready
+    app.kubernetes.io/managed-by: kustomize
+data:
+  SECRET_NAME_PREFIX: roundready-production

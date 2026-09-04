@@ -3,6 +3,10 @@ locals {
   broker_subnet_ids = var.deployment_mode == "CLUSTER_MULTI_AZ" ? (
     slice(var.private_data_subnet_ids, 0, 3)
   ) : slice(var.private_data_subnet_ids, 0, 1)
+  amqps_endpoints = [
+    for endpoint in flatten([for instance in aws_mq_broker.this.instances : instance.endpoints]) :
+    endpoint if startswith(endpoint, "amqps://")
+  ]
 }
 
 resource "aws_security_group" "this" {
@@ -41,8 +45,9 @@ resource "aws_secretsmanager_secret" "credentials" {
 resource "aws_secretsmanager_secret_version" "credentials" {
   secret_id = aws_secretsmanager_secret.credentials.id
   secret_string = jsonencode({
-    username = var.username
-    password = random_password.broker.result
+    username     = var.username
+    password     = random_password.broker.result
+    rabbitmq_url = replace(local.amqps_endpoints[0], "amqps://", "amqps://${urlencode(var.username)}:${urlencode(random_password.broker.result)}@")
   })
 }
 

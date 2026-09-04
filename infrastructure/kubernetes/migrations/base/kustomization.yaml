@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: roundready
+
+resources:
+  - configmap.yaml
+  - serviceaccounts.yaml
+  - secret-provider-classes.yaml
+  - jobs.yaml
+
+configurations:
+  - kustomizeconfig.yaml
+
+vars:
+  - name: SECRET_NAME_PREFIX
+    objref:
+      apiVersion: v1
+      kind: ConfigMap
+      name: roundready-migration-secret-identifiers
+    fieldref:
+      fieldpath: data.SECRET_NAME_PREFIX

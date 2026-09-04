@@ -3,8 +3,9 @@
 RoundReady reads configuration from environment variables. The root `.env.example` and
 `frontend/.env.example` are local-development templates only: **never reuse their values as
 production credentials**. Production values must be injected into each process at runtime.
-A deployment-specific secret-manager integration will be added with infrastructure deployment;
-AWS Secrets Manager or another provider is not integrated yet.
+EKS runtime delivery uses AWS Secrets Manager through EKS Pod Identity and the AWS Secrets Store
+CSI provider. CSI synchronization creates service-owned Kubernetes Secrets dynamically because
+the applications consume environment variables; no secret values are stored in Git.
 
 ## Runtime behavior
 
@@ -60,12 +61,14 @@ AWS environments use private ElastiCache Valkey-compatible endpoints and private
 RabbitMQ endpoints. Terraform generates their credentials and stores them in Secrets Manager;
 plaintext credentials are never output. Because both managed-service APIs require credential
 values during provisioning, those values remain sensitive Terraform state. The S3 backend must be
-encrypted and access restricted to infrastructure operators. Future EKS workloads will retrieve
-credentials through a least-privilege Pod Identity plus CSI/external-secret mechanism; Kubernetes
-secret delivery is intentionally deferred.
+encrypted and access restricted to infrastructure operators. EKS workloads retrieve credentials
+through least-privilege Pod Identity and the single approved Secrets Store CSI/AWS provider path.
+Synchronized Kubernetes Secrets require encrypted etcd, restricted RBAC, and coordinated pod
+restarts after rotation.
 
-Runtime configuration must construct authenticated `rediss://` and `amqps://` URLs from the
-private endpoints and injected secrets. Do not fall back to plaintext protocols. Redis is used only
+Before workload deployment, the managed credential secret versions must be extended with
+application-ready authenticated `rediss://` and `amqps://` URLs built from their private endpoints
+and credentials. Do not fall back to plaintext protocols. Redis is used only
 for ephemeral coordination; RabbitMQ remains the durable asynchronous transport and application
 code continues to declare its exchange, queue, retry, and dead-letter topology.
 

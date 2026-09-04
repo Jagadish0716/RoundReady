@@ -5,11 +5,12 @@ the EKS application security group; the broker and its management interface are 
 Application publishers and consumers continue to own exchanges, queues, routing keys, retries,
 and dead-letter topology.
 
-Terraform generates the required initial broker password and stores the username/password in
-Secrets Manager. Amazon MQ requires that password in the broker resource, so it remains sensitive
-Terraform state even though it is never output. Remote state must use encrypted S3 storage and
-tightly restricted IAM. Future EKS workloads will receive credentials through a Pod Identity plus
-CSI/external-secret design; that delivery is intentionally not implemented here.
+Terraform generates the required initial broker password and stores the username/password plus an
+application-ready `amqps://` URL in the existing Secrets Manager version. Amazon MQ requires that
+password in the broker resource, so it and the derived URL remain sensitive Terraform state even
+though neither is output. Remote state must use encrypted S3 storage and tightly restricted IAM.
+EKS workloads receive only this existing secret through their service-specific Pod Identity and
+Secrets Store CSI integration.
 
 Development uses a cost-sensitive single `mq.t3.micro`; production uses a three-node
 `CLUSTER_MULTI_AZ` deployment on `mq.m5.large`. Broker class and cluster deployment dominate cost,

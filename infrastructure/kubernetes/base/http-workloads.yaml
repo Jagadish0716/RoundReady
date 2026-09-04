@@ -7,6 +7,7 @@ metadata:
     app.kubernetes.io/component: gateway
     app.kubernetes.io/part-of: roundready
     app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: api-gateway
     roundready.io/workload-kind: http
 spec:
   replicas: 1
@@ -77,6 +78,7 @@ metadata:
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: roundready
     app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: auth-service
     roundready.io/workload-kind: http
 spec:
   replicas: 1
@@ -113,6 +115,7 @@ metadata:
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: roundready
     app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: user-service
     roundready.io/workload-kind: http
 spec:
   replicas: 1
@@ -149,6 +152,7 @@ metadata:
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: roundready
     app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: interviewer-service
     roundready.io/workload-kind: http
 spec:
   replicas: 1
@@ -185,6 +189,7 @@ metadata:
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: roundready
     app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: booking-service
     roundready.io/workload-kind: http
 spec:
   replicas: 1
@@ -221,6 +226,7 @@ metadata:
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: roundready
     app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: payment-service
     roundready.io/workload-kind: http
 spec:
   replicas: 1
@@ -260,6 +266,7 @@ metadata:
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: roundready
     app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: interview-service
     roundready.io/workload-kind: http
 spec:
   replicas: 1
@@ -299,6 +306,7 @@ metadata:
     app.kubernetes.io/component: backend
     app.kubernetes.io/part-of: roundready
     app.kubernetes.io/managed-by: kustomize
+    roundready.io/service: notification-service
     roundready.io/workload-kind: http
 spec:
   replicas: 1

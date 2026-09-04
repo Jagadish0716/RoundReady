@@ -118,23 +118,24 @@ STS. They are deferred until workload traffic and endpoint costs justify them.
 
 ## EKS foundation
 
-EKS runs the frontend, API gateway, backend APIs, and dedicated workers as separate future
+EKS runs the frontend, API gateway, backend APIs, and dedicated workers as separate
 workloads. The control plane and managed on-demand node group use the VPC's private application
 subnets across at least two discovered AZs; nodes never use public or private data subnets. The
-future ALB will be the only public application ingress. Kubernetes Services remain internal
+controller-created ALB is the only public application ingress. Kubernetes Services remain internal
 unless an explicit later boundary requires exposure.
 
 The cluster uses a pinned Kubernetes version, private API endpoint access, optional explicitly
 restricted public administrator access, configurable control-plane logs, and KMS encryption for
 Kubernetes Secrets. Cluster and node IAM roles use only required AWS-managed policies. EKS Pod
-Identity is the preferred future workload IAM mechanism; application roles and associations are
-deferred until workload manifests are designed. EKS access entries are prepared for explicitly
-configured operator principals without hardcoded personal mappings.
+Identity supplies service-specific roles and associations scoped to exact owned
+Secrets Manager ARNs and matching Kubernetes ServiceAccounts. EKS access entries
+are prepared for explicitly configured operator principals without hardcoded
+personal mappings.
 
 EKS control-plane charge, on-demand worker nodes, EBS node disks, control-plane log ingestion,
 and NAT traffic are major early cost drivers. Development can reduce node/log/NAT capacity;
-production retains multi-AZ nodes and private networking. Autoscaling add-ons, ALB integration,
-and all Kubernetes workloads are later implementation steps.
+production retains multi-AZ nodes and private networking. Autoscaling remains a
+later implementation step.
 
 ## Public HTTPS ingress prerequisites
 

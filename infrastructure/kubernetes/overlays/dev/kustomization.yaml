@@ -18,6 +18,9 @@ patches:
       - op: replace
         path: /data/ENVIRONMENT
         value: development
+  - target: {version: v1, kind: ConfigMap, name: roundready-secret-identifiers}
+    patch: |-
+      - {op: replace, path: /data/SECRET_NAME_PREFIX, value: roundready-dev}
   - target: {group: apps, version: v1, kind: Deployment, name: payment-service}
     patch: &development-payment |-
       - {op: replace, path: /spec/template/spec/containers/0/env/0/value, value: development}

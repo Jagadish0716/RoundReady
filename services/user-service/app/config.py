@@ -29,18 +29,6 @@ class Settings(BaseSettings):
     internal_service_secret: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_SERVICE_SECRET"
     )
-    rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
-    rabbitmq_exchange: str = Field(
-        default="roundready.events", validation_alias="RABBITMQ_EXCHANGE"
-    )
-    rabbitmq_queue: str = Field(
-        default="roundready.user.events", validation_alias="USER_EVENT_QUEUE"
-    )
-    rabbitmq_dead_letter_exchange: str = Field(
-        default="roundready.events.dlx",
-        validation_alias="RABBITMQ_DEAD_LETTER_EXCHANGE",
-    )
-
     @model_validator(mode="after")
     def production_configuration(self) -> "Settings":
         if not is_production(self.environment):
@@ -51,7 +39,6 @@ class Settings(BaseSettings):
             schemes={"postgresql+asyncpg"},
             credentials=True,
         )
-        require_url("RABBITMQ_URL", self.rabbitmq_url, schemes={"amqp", "amqps"}, credentials=True)
         require_secret("INTERNAL_IDENTITY_SECRET", self.internal_identity_secret)
         require_secret("INTERNAL_SERVICE_SECRET", self.internal_service_secret)
         return self

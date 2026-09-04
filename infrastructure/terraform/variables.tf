@@ -321,6 +321,30 @@ variable "api_domain" {
   nullable    = true
 }
 
+variable "public_alb_dns_name" {
+  description = "Controller-created public ALB DNS name; null until Kubernetes Ingress exists."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.public_alb_dns_name == null || can(regex("^[A-Za-z0-9.-]+\\.elb\\.[a-z0-9-]+\\.amazonaws\\.com$", var.public_alb_dns_name))
+    error_message = "public_alb_dns_name must be a valid AWS ALB DNS name or null."
+  }
+}
+
+variable "public_alb_zone_id" {
+  description = "Canonical hosted-zone ID of the controller-created public ALB; null until it exists."
+  type        = string
+  default     = null
+  nullable    = true
+
+  validation {
+    condition     = var.public_alb_zone_id == null || can(regex("^Z[A-Z0-9]+$", var.public_alb_zone_id))
+    error_message = "public_alb_zone_id must be a valid AWS hosted-zone ID or null."
+  }
+}
+
 variable "application_namespace" {
   description = "Kubernetes namespace reserved for RoundReady application workloads."
   type        = string

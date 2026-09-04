@@ -131,6 +131,8 @@ module "dns" {
   hosted_zone_name = var.hosted_zone_name
   frontend_domain  = var.frontend_domain
   api_domain       = var.api_domain
+  alb_dns_name     = var.public_alb_dns_name
+  alb_zone_id      = var.public_alb_zone_id
   common_tags      = local.common_tags
 }
 

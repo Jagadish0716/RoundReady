@@ -1,0 +1,11 @@
+image:
+  repository: public.ecr.aws/aws-secrets-manager/secrets-store-csi-driver-provider-aws
+  tag: 3.1.3
+  pullPolicy: IfNotPresent
+
+resources:
+  requests: {cpu: 50m, memory: 100Mi}
+  limits: {cpu: 100m, memory: 200Mi}
+
+secrets-store-csi-driver:
+  install: false

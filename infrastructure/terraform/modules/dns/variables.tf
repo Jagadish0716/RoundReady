@@ -36,6 +36,20 @@ variable "api_domain" {
   nullable    = true
 }
 
+variable "alb_dns_name" {
+  description = "Controller-created public ALB DNS name; null before Ingress reconciliation."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
+variable "alb_zone_id" {
+  description = "Canonical hosted-zone ID for the controller-created ALB."
+  type        = string
+  default     = null
+  nullable    = true
+}
+
 variable "common_tags" {
   description = "Non-sensitive tags for ACM resources."
   type        = map(string)

@@ -1,0 +1,34 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: roundready-public
+  labels: {app.kubernetes.io/name: roundready-public, app.kubernetes.io/component: ingress, app.kubernetes.io/part-of: roundready, app.kubernetes.io/managed-by: kustomize}
+  annotations:
+    alb.ingress.kubernetes.io/group.name: roundready-public
+    alb.ingress.kubernetes.io/group.order: "10"
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/manage-backend-security-group-rules: "true"
+    alb.ingress.kubernetes.io/ip-address-type: ipv4
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP":80},{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    alb.ingress.kubernetes.io/certificate-arn: REQUIRED_ACM_CERTIFICATE_ARN
+    alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    alb.ingress.kubernetes.io/load-balancer-attributes: deletion_protection.enabled=true,routing.http.drop_invalid_header_fields.enabled=true
+spec:
+  ingressClassName: alb
+  rules:
+    - host: REQUIRED_FRONTEND_HOST
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: frontend, port: {number: 3000}}
+    - host: REQUIRED_API_HOST
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: {name: api-gateway, port: {number: 8000}}
