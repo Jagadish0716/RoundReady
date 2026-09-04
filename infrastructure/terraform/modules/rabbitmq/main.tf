@@ -53,7 +53,7 @@ resource "aws_secretsmanager_secret_version" "credentials" {
 
 resource "aws_mq_broker" "this" {
   broker_name        = local.broker_name
-  engine_type        = "RABBITMQ"
+  engine_type        = "RabbitMQ"
   engine_version     = var.engine_version
   host_instance_type = var.instance_type
   deployment_mode    = var.deployment_mode

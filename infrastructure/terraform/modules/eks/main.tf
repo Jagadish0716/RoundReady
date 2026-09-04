@@ -175,3 +175,15 @@ resource "aws_eks_access_entry" "operator" {
   type              = "STANDARD"
   kubernetes_groups = ["roundready:operators"]
 }
+
+resource "aws_eks_access_policy_association" "operator_admin" {
+  for_each = aws_eks_access_entry.operator
+
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+}

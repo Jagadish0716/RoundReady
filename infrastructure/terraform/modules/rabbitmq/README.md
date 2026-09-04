@@ -12,7 +12,7 @@ though neither is output. Remote state must use encrypted S3 storage and tightly
 EKS workloads receive only this existing secret through their service-specific Pod Identity and
 Secrets Store CSI integration.
 
-Development uses a cost-sensitive single `mq.t3.micro`; production uses a three-node
+Development uses a cost-sensitive single `mq.m7g.medium`; production uses a three-node
 `CLUSTER_MULTI_AZ` deployment on `mq.m5.large`. Broker class and cluster deployment dominate cost,
 followed by storage, CloudWatch logs, and data transfer. Amazon MQ is chosen over an in-cluster
 broker to provide managed patching, stable endpoints, and multi-AZ broker lifecycle.
