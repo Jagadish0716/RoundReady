@@ -23,7 +23,6 @@ def test_production_rejects_defaults_and_accepts_explicit_infrastructure() -> No
         interview_service_url="http://interview-service.internal:8000",
         notification_service_url="http://notification-service.internal:8000",
         internal_identity_secret="i" * 40,
-        notification_internal_identity_secret="n" * 40,
     )
     assert settings.environment == "production"
 

@@ -33,7 +33,7 @@ async def get_identity(
     role: Annotated[str | None, Header(alias="X-User-Role")] = None,
     secret: Annotated[str | None, Header(alias="X-Internal-Identity-Secret")] = None,
 ) -> Identity:
-    expected = settings.internal_service_secret.get_secret_value()
+    expected = settings.internal_identity_secret.get_secret_value()
     if not expected or secret is None or not secrets.compare_digest(expected, secret):
         raise ServiceError(
             code="invalid_internal_identity",

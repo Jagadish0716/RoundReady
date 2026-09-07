@@ -208,6 +208,7 @@ services:
       NOTIFICATION_DATABASE_URL: postgresql+asyncpg://${NOTIFICATION_DB_USER:?}:${NOTIFICATION_DB_PASSWORD:?}@postgres:5432/${NOTIFICATION_DB_NAME:-roundready_notification}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
       USER_SERVICE_URL: http://user-service:8000
+      INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?}
     depends_on: {postgres: {condition: service_healthy}}
     healthcheck: *api-health
@@ -228,7 +229,6 @@ services:
       INTERVIEW_SERVICE_URL: http://interview-service:8000
       NOTIFICATION_SERVICE_URL: http://notification-service:8000
       INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
-      NOTIFICATION_INTERNAL_IDENTITY_SECRET: ${INTERNAL_SERVICE_SECRET:?}
       CORS_ORIGINS: ${CORS_ORIGINS:-[]}
       RATE_LIMIT_REQUESTS: ${RATE_LIMIT_REQUESTS:-300}
       RATE_LIMIT_WINDOW_SECONDS: ${RATE_LIMIT_WINDOW_SECONDS:-60}

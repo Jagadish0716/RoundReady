@@ -53,7 +53,6 @@ def gateway() -> Iterator[tuple[TestClient, list[httpx.Request], FakeLimiter]]:
 
     settings = Settings(
         internal_identity_secret="internal-test-secret",
-        notification_internal_identity_secret="notification-test-secret",
         rate_limit_requests=2,
         rate_limit_window_seconds=60,
     )
@@ -150,7 +149,6 @@ def test_configured_cors_allows_only_explicit_origin(monkeypatch: pytest.MonkeyP
     settings = Settings(
         cors_origins=["https://app.roundready.in"],
         internal_identity_secret="internal-test-secret",
-        notification_internal_identity_secret="notification-test-secret",
     )
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     with TestClient(create_app()) as client:
@@ -264,7 +262,7 @@ def test_notification_routes_require_auth_and_replace_identity(
     assert response.status_code == 200
     assert response.json()["path"] == "/v1/notifications/me"
     assert response.json()["user_id"] == str(USER_ID)
-    assert requests[-1].headers["X-Internal-Identity-Secret"] == "notification-test-secret"
+    assert requests[-1].headers["X-Internal-Identity-Secret"] == "internal-test-secret"
 
 
 def test_rate_limit_returns_429(

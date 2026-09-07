@@ -24,9 +24,6 @@ class Settings(BaseSettings):
     internal_identity_secret: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_IDENTITY_SECRET"
     )
-    notification_internal_identity_secret: SecretStr = Field(
-        default=SecretStr(""), validation_alias="NOTIFICATION_INTERNAL_IDENTITY_SECRET"
-    )
     cors_origins: list[str] = Field(default_factory=list, validation_alias="CORS_ORIGINS")
     cors_allow_credentials: bool = Field(default=True, validation_alias="CORS_ALLOW_CREDENTIALS")
     hsts_enabled: bool = Field(default=False, validation_alias="HSTS_ENABLED")
@@ -71,10 +68,6 @@ class Settings(BaseSettings):
         ):
             require_url(name, value, schemes={"http", "https"})
         require_secret("INTERNAL_IDENTITY_SECRET", self.internal_identity_secret)
-        require_secret(
-            "NOTIFICATION_INTERNAL_IDENTITY_SECRET",
-            self.notification_internal_identity_secret,
-        )
         return self
 
 

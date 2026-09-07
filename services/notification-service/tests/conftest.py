@@ -48,6 +48,7 @@ def client(postgres_url: str) -> Iterator[TestClient]:
             "MAX_DELIVERY_ATTEMPTS": "3",
             "RETRY_BASE_SECONDS": "1",
             "RETRY_MAX_SECONDS": "4",
+            "INTERNAL_IDENTITY_SECRET": "gateway-identity-test-secret",
             "INTERNAL_SERVICE_SECRET": "internal-test-secret",
         }
     )

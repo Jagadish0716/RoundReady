@@ -218,7 +218,7 @@ async def test_owned_notification_list_and_idempotent_read(client: TestClient) -
     headers = {
         "X-User-ID": str(owner),
         "X-User-Role": "candidate",
-        "X-Internal-Identity-Secret": "internal-test-secret",
+        "X-Internal-Identity-Secret": "gateway-identity-test-secret",
     }
 
     listed = client.get("/v1/notifications/me", headers=headers)
@@ -254,6 +254,6 @@ def test_notification_api_rejects_untrusted_and_admin_identity(client: TestClien
     admin = {
         "X-User-ID": str(uuid4()),
         "X-User-Role": "admin",
-        "X-Internal-Identity-Secret": "internal-test-secret",
+        "X-Internal-Identity-Secret": "gateway-identity-test-secret",
     }
     assert client.get("/v1/notifications/me", headers=admin).status_code == 403

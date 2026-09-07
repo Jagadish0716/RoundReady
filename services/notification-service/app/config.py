@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     whatsapp_template_name: str = ""
     whatsapp_template_language: str = ""
     user_service_url: str = "http://user-service:8000"
+    internal_identity_secret: SecretStr = Field(
+        default=SecretStr(""), validation_alias="INTERNAL_IDENTITY_SECRET"
+    )
     internal_service_secret: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_SERVICE_SECRET"
     )
@@ -66,6 +69,7 @@ class Settings(BaseSettings):
         )
         require_url("RABBITMQ_URL", self.rabbitmq_url, schemes={"amqp", "amqps"}, credentials=True)
         require_url("USER_SERVICE_URL", self.user_service_url, schemes={"http", "https"})
+        require_secret("INTERNAL_IDENTITY_SECRET", self.internal_identity_secret)
         require_secret("INTERNAL_SERVICE_SECRET", self.internal_service_secret)
         if self.email_provider != "resend" or self.whatsapp_provider != "meta":
             raise ValueError("development notification providers are unavailable in production")

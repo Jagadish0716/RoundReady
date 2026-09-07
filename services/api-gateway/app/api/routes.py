@@ -118,16 +118,11 @@ async def proxy(
     if authorization and path.startswith("v1/auth"):
         headers["Authorization"] = authorization
     if identity:
-        identity_secret = settings.internal_identity_secret.get_secret_value()
-        if path.startswith("v1/notifications"):
-            identity_secret = (
-                settings.notification_internal_identity_secret.get_secret_value() or identity_secret
-            )
         headers.update(
             {
                 "X-User-ID": str(identity.user_id),
                 "X-User-Role": identity.role.value,
-                "X-Internal-Identity-Secret": identity_secret,
+                "X-Internal-Identity-Secret": settings.internal_identity_secret.get_secret_value(),
             }
         )
     try:

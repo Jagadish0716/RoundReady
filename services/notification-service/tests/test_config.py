@@ -15,6 +15,7 @@ def production_values() -> dict[str, Any]:
             "amqps://notification:LongRandomRabbitCredential9@rabbit.internal/roundready"
         ),
         "user_service_url": "http://user-service.internal:8000",
+        "internal_identity_secret": "i" * 40,
         "internal_service_secret": "s" * 40,
         "email_provider": "resend",
         "resend_api_base_url": "https://api.resend.com",
