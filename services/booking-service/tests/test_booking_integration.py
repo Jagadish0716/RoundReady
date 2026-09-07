@@ -15,6 +15,16 @@ from roundready_common.errors import ServiceError
 def generate(
     client: TestClient, admin: dict[str, str], interviewer: UUID, start: datetime
 ) -> dict[str, object]:
+    eligibility = client.post(
+        "/v1/internal/interviewer-verification-events",
+        headers=admin,
+        json={
+            "event_id": str(uuid4()),
+            "interviewer_id": str(interviewer),
+            "event_type": "interviewer.verification.approved.v1",
+        },
+    )
+    assert eligibility.status_code == 204
     response = client.post(
         "/v1/internal/slots/generate",
         headers=admin,
@@ -61,6 +71,34 @@ def test_simultaneous_holds_allow_one_winner(client: TestClient) -> None:
             )
         )
     assert sorted(results) == [200, 409]
+
+
+def test_non_verified_interviewer_is_hidden_and_not_bookable(client: TestClient) -> None:
+    admin = headers("admin")
+    interviewer = uuid4()
+    start = datetime(2030, 1, 1, 9, tzinfo=UTC)
+    slot = generate(client, admin, interviewer, start)
+    suspended = client.post(
+        "/v1/internal/interviewer-verification-events",
+        headers=admin,
+        json={
+            "event_id": str(uuid4()),
+            "interviewer_id": str(interviewer),
+            "event_type": "interviewer.verification.suspended.v1",
+        },
+    )
+    assert suspended.status_code == 204
+    discovered = client.get(
+        "/v1/slots",
+        headers=headers(),
+        params={
+            "starts_after": (start - timedelta(hours=1)).isoformat(),
+            "ends_before": (start + timedelta(hours=1)).isoformat(),
+        },
+    )
+    held = client.post(f"/v1/slots/{slot['id']}/hold", headers=headers())
+    assert discovered.status_code == 200 and discovered.json() == []
+    assert held.status_code == 409
 
 
 def test_two_candidates_cannot_concurrently_book_same_slot(client: TestClient) -> None:

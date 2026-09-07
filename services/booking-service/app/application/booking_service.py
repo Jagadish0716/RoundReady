@@ -10,6 +10,7 @@ from app.domain.models import (
     Booking,
     BookingStatus,
     BookingStatusHistory,
+    InterviewerEligibility,
     OutboxEvent,
     ProcessedEvent,
     Slot,
@@ -42,6 +43,13 @@ class BookingService:
         self.settings = settings
 
     async def generate_slots(self, request: GenerateSlotsRequest) -> list[Slot]:
+        eligibility = await self.session.get(InterviewerEligibility, request.interviewer_id)
+        if eligibility is None or not eligibility.verified:
+            raise ServiceError(
+                code="interviewer_not_verified",
+                message="Only verified interviewers can publish slots",
+                status_code=409,
+            )
         duration = timedelta(minutes=self.settings.session_duration_minutes)
         if any(window.ends_at - window.starts_at != duration for window in request.windows):
             raise ServiceError(
@@ -82,6 +90,11 @@ class BookingService:
                     .where(
                         Slot.starts_at >= starts_after,
                         Slot.ends_at <= ends_before,
+                        Slot.interviewer_id.in_(
+                            select(InterviewerEligibility.interviewer_id).where(
+                                InterviewerEligibility.verified.is_(True)
+                            )
+                        ),
                         or_(
                             Slot.status == SlotStatus.AVAILABLE,
                             (Slot.status == SlotStatus.HELD) & (Slot.hold_expires_at <= now),
@@ -102,9 +115,16 @@ class BookingService:
             slot = await self.session.scalar(
                 select(Slot).where(Slot.id == slot_id).with_for_update()
             )
+            eligibility = (
+                await self.session.get(InterviewerEligibility, slot.interviewer_id)
+                if slot is not None
+                else None
+            )
             now = datetime.now(UTC)
             if (
                 slot is None
+                or eligibility is None
+                or not eligibility.verified
                 or slot.status in {SlotStatus.BOOKED, SlotStatus.BLOCKED}
                 or (
                     slot.status == SlotStatus.HELD
@@ -144,9 +164,16 @@ class BookingService:
                 status_code=409,
             )
         slot = await self.session.scalar(select(Slot).where(Slot.id == slot_id).with_for_update())
+        eligibility = (
+            await self.session.get(InterviewerEligibility, slot.interviewer_id)
+            if slot is not None
+            else None
+        )
         now = datetime.now(UTC)
         if (
             slot is None
+            or eligibility is None
+            or not eligibility.verified
             or slot.status != SlotStatus.HELD
             or slot.held_by_candidate_id != candidate_id
             or slot.hold_token_hash != self._hash(token)
@@ -338,6 +365,22 @@ class BookingService:
             )
         await self.session.commit()
         return cast(Booking, booking)
+
+    async def set_interviewer_eligibility(
+        self, event_id: UUID, interviewer_id: UUID, verified: bool, event_type: str
+    ) -> None:
+        if await self.session.get(ProcessedEvent, event_id):
+            return
+        await self.session.execute(
+            insert(InterviewerEligibility)
+            .values(interviewer_id=interviewer_id, verified=verified, updated_at=utc_now())
+            .on_conflict_do_update(
+                index_elements=[InterviewerEligibility.interviewer_id],
+                set_={"verified": verified, "updated_at": utc_now()},
+            )
+        )
+        self.session.add(ProcessedEvent(event_id=event_id, event_type=event_type))
+        await self.session.commit()
 
     async def expire_holds(self) -> int:
         now = datetime.now(UTC)

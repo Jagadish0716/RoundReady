@@ -27,6 +27,7 @@ const slot = {
   ends_at: "2030-01-01T10:20:00Z",
   status: "available",
   hold_expires_at: null,
+  roundready_verified: true,
 };
 const hold = {
   slot_id: slot.id,
@@ -106,6 +107,7 @@ describe("CandidateBooking", () => {
     expect(screen.getByText("Interviewer interviewer-1")).toBeInTheDocument();
     expect(screen.getByText("₹200")).toBeInTheDocument();
     expect(screen.getByText(/20 minutes/)).toBeInTheDocument();
+    expect(screen.getByText("RoundReady Verified")).toBeInTheDocument();
   });
 
   it("holds a selected slot and displays expiry", async () => {

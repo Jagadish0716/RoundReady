@@ -35,7 +35,12 @@ async def run() -> None:
         durable=True,
         arguments={"x-dead-letter-exchange": settings.rabbitmq_dead_letter_exchange},
     )
-    for event_type in (PAYMENT_CAPTURED, PAYMENT_FAILED, PAYMENT_REFUNDED):
+    verification_events = (
+        "interviewer.verification.approved.v1",
+        "interviewer.verification.rejected.v1",
+        "interviewer.verification.suspended.v1",
+    )
+    for event_type in (PAYMENT_CAPTURED, PAYMENT_FAILED, PAYMENT_REFUNDED, *verification_events):
         await queue.bind(exchange, routing_key=event_type)
 
     async def handle(message: AbstractIncomingMessage) -> None:
@@ -43,16 +48,25 @@ async def run() -> None:
             event = decode_event(message.body)
             payload = event.payload
             async with session_factory() as session:
-                await BookingService(
+                service = BookingService(
                     session, RedisHoldStore(redis, settings.hold_ttl_seconds), settings
-                ).handle_payment(
-                    event.event_id,
-                    event.event_type,
-                    UUID(str(payload["payment_id"])),
-                    UUID(str(payload["booking_id"])),
-                    int(payload["amount_paise"]),
-                    str(payload["currency"]),
                 )
+                if event.event_type in verification_events:
+                    await service.set_interviewer_eligibility(
+                        event.event_id,
+                        UUID(str(payload["interviewer_id"])),
+                        event.event_type == "interviewer.verification.approved.v1",
+                        event.event_type,
+                    )
+                else:
+                    await service.handle_payment(
+                        event.event_id,
+                        event.event_type,
+                        UUID(str(payload["payment_id"])),
+                        UUID(str(payload["booking_id"])),
+                        int(payload["amount_paise"]),
+                        str(payload["currency"]),
+                    )
         except (ConnectionError, OSError, TimeoutError, RedisError, OperationalError) as exc:
             await message.nack(requeue=True)
             logger.warning("payment_event_requeued", error_type=type(exc).__name__)

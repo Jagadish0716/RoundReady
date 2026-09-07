@@ -11,6 +11,78 @@ export const interviewerDomains = [
 export type InterviewerDomain = (typeof interviewerDomains)[number];
 export type VerificationStatus =
   "pending" | "under_review" | "verified" | "rejected" | "suspended";
+export type VerificationCheckType =
+  | "email_verified"
+  | "mobile_verified"
+  | "linkedin_reviewed"
+  | "company_email_verified"
+  | "professional_evidence_reviewed"
+  | "screening_call_passed";
+export type EvidenceType =
+  "linkedin" | "company_email" | "github_or_portfolio" | "supporting_document";
+export type EvidenceStatus = "pending" | "verified" | "rejected";
+export type ScreeningStatus = "not_scheduled" | "pending" | "passed" | "failed";
+
+export interface VerificationEvidence {
+  id: string;
+  evidence_type: EvidenceType;
+  value_reference: string;
+  status: EvidenceStatus;
+  reviewer_notes: string | null;
+  created_at: string;
+  reviewed_at: string | null;
+}
+
+export interface VerificationCheck {
+  check_type: VerificationCheckType;
+  passed: boolean;
+  reviewed_at: string | null;
+}
+
+export interface ScreeningResult {
+  screening_status: ScreeningStatus;
+  reviewer_notes: string | null;
+  communication_assessment: string | null;
+  technical_assessment: string | null;
+  overall_result: string | null;
+  reviewed_at: string | null;
+}
+
+export interface VerificationHistory {
+  action: string;
+  from_status: VerificationStatus | null;
+  to_status: VerificationStatus;
+  reviewed_by: string;
+  notes: string | null;
+  created_at: string;
+}
+
+export interface VerificationDetail {
+  interviewer_id: string;
+  status: VerificationStatus;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  rejection_reason: string | null;
+  suspension_reason: string | null;
+  evidence: VerificationEvidence[];
+  checks: VerificationCheck[];
+  screening: ScreeningResult | null;
+  history: VerificationHistory[];
+}
+
+export interface VerificationReviewInput {
+  action:
+    | "under_review"
+    | "verify"
+    | "reject"
+    | "request_more_evidence"
+    | "suspend"
+    | "reactivate";
+  reason?: string;
+  checks?: Partial<Record<VerificationCheckType, boolean>>;
+  evidence_statuses?: Record<string, EvidenceStatus>;
+  screening?: Omit<ScreeningResult, "reviewed_at">;
+}
 
 export interface InterviewerProfileInput {
   headline: string;

@@ -1,6 +1,7 @@
 import { InterviewerWorkspace } from "@/components/interviewer/interviewer-workspace";
 import { SessionWorkspace } from "@/components/interview/session-workspace";
 import { NotificationCenter } from "@/components/notifications/notification-center";
+import { VerificationPanel } from "@/components/interviewer/verification-panel";
 
 export default function InterviewerPage() {
   return (
@@ -8,6 +9,7 @@ export default function InterviewerPage() {
       <NotificationCenter />
       <SessionWorkspace role="interviewer" />
       <InterviewerWorkspace />
+      <VerificationPanel />
     </div>
   );
 }

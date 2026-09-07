@@ -5,6 +5,9 @@ import type {
   InterviewerProfileInput,
   InterviewerSkill,
   InterviewerSkillInput,
+  EvidenceType,
+  VerificationDetail,
+  VerificationReviewInput,
   WeeklyRule,
   WeeklyRuleInput,
 } from "@/types/interviewer";
@@ -50,11 +53,42 @@ export const createBlockout = (
   request<Blockout>(`${own}/availability/blockouts`, { method: "POST", body });
 export const deleteBlockout = (request: AuthenticatedRequest, id: string) =>
   request<null>(`${own}/availability/blockouts/${id}`, { method: "DELETE" });
+export const getOwnVerification = (request: AuthenticatedRequest) =>
+  request<VerificationDetail>(`${own}/verification`);
+export const saveVerificationEvidence = (
+  request: AuthenticatedRequest,
+  evidence_type: EvidenceType,
+  value_reference: string,
+) =>
+  request<VerificationDetail>(`${own}/verification/evidence`, {
+    method: "PUT",
+    body: { evidence_type, value_reference },
+  });
+export const submitVerification = (request: AuthenticatedRequest) =>
+  request<InterviewerProfile>(`${own}/verification/submit`, { method: "POST" });
 
 const admin = "/v1/interviewers/admin";
 
 export const getVerificationQueue = (request: AuthenticatedRequest) =>
   request<InterviewerProfile[]>(`${admin}/verification-queue`);
+export const getAllInterviewers = (request: AuthenticatedRequest) =>
+  request<InterviewerProfile[]>(`${admin}/interviewers`);
+export const getVerificationDetail = (
+  request: AuthenticatedRequest,
+  interviewerId: string,
+) =>
+  request<VerificationDetail>(
+    `${admin}/interviewers/${interviewerId}/verification`,
+  );
+export const reviewVerification = (
+  request: AuthenticatedRequest,
+  interviewerId: string,
+  body: VerificationReviewInput,
+) =>
+  request<VerificationDetail>(
+    `${admin}/interviewers/${interviewerId}/verification/review`,
+    { method: "POST", body },
+  );
 export const approveInterviewer = (
   request: AuthenticatedRequest,
   interviewerId: string,

@@ -1,5 +1,5 @@
 from typing import cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 from conftest import headers
@@ -74,8 +74,22 @@ def test_verification_approve_suspend_reactivate_and_events(
     )
     queue = client.get("/v1/admin/verification-queue", headers=admin)
     assert user_id in {item["user_id"] for item in queue.json()}
-    approved = client.post(f"/v1/admin/interviewers/{user_id}/approve", headers=admin)
-    assert approved.json()["verification_status"] == "verified"
+    approved = client.post(
+        f"/v1/admin/interviewers/{user_id}/verification/review",
+        headers=admin,
+        json={
+            "action": "verify",
+            "checks": {"professional_evidence_reviewed": True},
+            "screening": {
+                "screening_status": "passed",
+                "communication_assessment": "Clear communication",
+                "technical_assessment": "Strong technical depth",
+                "overall_result": "passed",
+            },
+        },
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "verified"
     verified = client.get("/v1/admin/interviewers?verification_status=verified", headers=admin)
     assert user_id in {item["user_id"] for item in verified.json()}
     suspended = client.post(
@@ -92,11 +106,9 @@ def test_verification_approve_suspend_reactivate_and_events(
         psycopg.connect(postgres_url.replace("postgresql+psycopg", "postgresql")) as connection,
         connection.cursor() as cursor,
     ):
-        cursor.execute(
-            "SELECT event_type FROM outbox_events WHERE payload->>'user_id' = %s", (user_id,)
-        )
+        cursor.execute("SELECT event_type FROM outbox_events")
         events = [row[0] for row in cursor.fetchall()]
-    assert events.count("interviewer.InterviewerVerified.v1") == 2
+    assert "interviewer.verification.approved.v1" in events
     assert "interviewer.InterviewerSuspended.v1" in events
 
 
@@ -131,6 +143,67 @@ def test_rejection_requires_reason_and_valid_transition(
         json={"reason": "Insufficient evidence"},
     )
     assert rejected.json()["verification_status"] == "rejected"
+
+
+def test_layered_evidence_is_private_and_candidate_trust_is_safe(
+    client: TestClient, profile: dict[str, object]
+) -> None:
+    interviewer, other, admin = headers(), headers(), headers("admin")
+    user_id = create_profile(client, interviewer, profile)["user_id"]
+    evidence = client.put(
+        "/v1/me/verification/evidence",
+        headers=interviewer,
+        json={
+            "evidence_type": "company_email",
+            "value_reference": "engineer@company.example",
+        },
+    )
+    assert evidence.status_code == 200
+    assert evidence.json()["evidence"][0]["status"] == "pending"
+    assert client.get("/v1/me/verification", headers=other).status_code == 404
+    client.post("/v1/me/verification/submit", headers=interviewer)
+    reviewed = client.post(
+        f"/v1/admin/interviewers/{user_id}/verification/review",
+        headers=admin,
+        json={
+            "action": "verify",
+            "checks": {
+                "email_verified": True,
+                "professional_evidence_reviewed": True,
+            },
+            "evidence_statuses": {evidence.json()["evidence"][0]["id"]: "verified"},
+            "screening": {"screening_status": "passed", "overall_result": "passed"},
+        },
+    )
+    assert reviewed.status_code == 200
+    trust = client.get(f"/v1/{user_id}/trust", headers=headers("candidate"))
+    assert trust.status_code == 200
+    assert trust.json() == {
+        "interviewer_id": user_id,
+        "roundready_verified": True,
+        "contact_verified": True,
+        "professional_experience_reviewed": True,
+        "screening_passed": True,
+    }
+    assert "evidence" not in trust.json() and "reviewer_notes" not in trust.json()
+
+
+def test_interviewer_cannot_self_approve(client: TestClient, profile: dict[str, object]) -> None:
+    interviewer = headers("interviewer")
+    user_id = create_profile(client, interviewer, profile)["user_id"]
+    client.post("/v1/me/verification/submit", headers=interviewer)
+    response = client.post(
+        f"/v1/admin/interviewers/{user_id}/verification/review",
+        headers=interviewer,
+        json={"action": "verify"},
+    )
+    assert response.status_code == 403
+    admin_same_user = client.post(
+        f"/v1/admin/interviewers/{user_id}/verification/review",
+        headers=headers("admin", UUID(str(user_id))),
+        json={"action": "verify"},
+    )
+    assert admin_same_user.status_code == 403
 
 
 def test_weekly_availability_and_blockouts_publish_changes(

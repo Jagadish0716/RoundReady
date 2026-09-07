@@ -6,15 +6,17 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { ApiClientError } from "@/lib/api/client";
 import {
-  approveInterviewer,
-  getVerificationQueue,
-  reactivateInterviewer,
-  rejectInterviewer,
-  suspendInterviewer,
+  getAllInterviewers,
+  getVerificationDetail,
+  reviewVerification,
 } from "@/lib/api/interviewer";
-import type { InterviewerProfile } from "@/types/interviewer";
+import type {
+  InterviewerProfile,
+  VerificationDetail,
+  VerificationReviewInput,
+} from "@/types/interviewer";
 
-type Action = "approve" | "reject" | "suspend" | "reactivate";
+type Action = VerificationReviewInput["action"];
 
 function messageFor(error: unknown): string {
   if (error instanceof ApiClientError && error.status === 409)
@@ -27,7 +29,10 @@ export function InterviewerReview() {
   const { request } = useAuth();
   const [profiles, setProfiles] = useState<InterviewerProfile[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<VerificationDetail | null>(null);
   const [reason, setReason] = useState("");
+  const [professionalReviewed, setProfessionalReviewed] = useState(false);
+  const [screeningPassed, setScreeningPassed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeAction, setActiveAction] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -37,7 +42,7 @@ export function InterviewerReview() {
     setLoading(true);
     setError(null);
     try {
-      const current = await getVerificationQueue(request);
+      const current = await getAllInterviewers(request);
       setProfiles(current);
       setSelectedId((value) =>
         value && current.some((profile) => profile.user_id === value)
@@ -53,7 +58,7 @@ export function InterviewerReview() {
 
   useEffect(() => {
     let active = true;
-    getVerificationQueue(request)
+    getAllInterviewers(request)
       .then((current) => {
         if (!active) return;
         setProfiles(current);
@@ -73,9 +78,27 @@ export function InterviewerReview() {
   const selected =
     profiles.find((profile) => profile.user_id === selectedId) ?? null;
 
+  useEffect(() => {
+    let active = true;
+    if (!selectedId) return;
+    getVerificationDetail(request, selectedId)
+      .then((value) => {
+        if (active) setDetail(value);
+      })
+      .catch((caught: unknown) => {
+        if (active) setError(messageFor(caught));
+      });
+    return () => {
+      active = false;
+    };
+  }, [request, selectedId]);
+
   async function perform(action: Action) {
     if (!selected || activeAction) return;
-    const needsReason = action === "reject" || action === "suspend";
+    const needsReason =
+      action === "reject" ||
+      action === "suspend" ||
+      action === "request_more_evidence";
     if (needsReason && !reason.trim()) {
       setError("A reason is required for this action.");
       return;
@@ -85,14 +108,22 @@ export function InterviewerReview() {
     setError(null);
     setNotice(null);
     try {
-      if (action === "approve")
-        await approveInterviewer(request, selected.user_id);
-      if (action === "reject")
-        await rejectInterviewer(request, selected.user_id, reason.trim());
-      if (action === "suspend")
-        await suspendInterviewer(request, selected.user_id, reason.trim());
-      if (action === "reactivate")
-        await reactivateInterviewer(request, selected.user_id);
+      const body: VerificationReviewInput = { action };
+      if (needsReason) body.reason = reason.trim();
+      if (action === "verify") {
+        body.checks = {
+          professional_evidence_reviewed: professionalReviewed,
+          screening_call_passed: screeningPassed,
+        };
+        body.screening = {
+          screening_status: screeningPassed ? "passed" : "failed",
+          reviewer_notes: reason.trim() || null,
+          communication_assessment: "reviewed",
+          technical_assessment: "reviewed",
+          overall_result: "passed",
+        };
+      }
+      await reviewVerification(request, selected.user_id, body);
       setNotice("Verification status updated.");
       setReason("");
       await load();
@@ -111,7 +142,8 @@ export function InterviewerReview() {
             Interviewer reviews
           </h1>
           <p className="text-sm text-slate-600">
-            Review submitted professional profiles.
+            Review identity evidence, verification checks, and screening
+            outcomes.
           </p>
         </div>
         <Button
@@ -148,8 +180,11 @@ export function InterviewerReview() {
                   type="button"
                   className={`w-full rounded-lg border p-3 text-left ${selectedId === profile.user_id ? "border-blue-500 bg-blue-50" : "bg-white"}`}
                   onClick={() => {
+                    setDetail(null);
                     setSelectedId(profile.user_id);
                     setReason("");
+                    setProfessionalReviewed(false);
+                    setScreeningPassed(false);
                     setError(null);
                   }}
                 >
@@ -211,10 +246,70 @@ export function InterviewerReview() {
                   )}
                 </div>
               )}
+              {detail ? (
+                <div className="space-y-4 border-t pt-4 text-sm">
+                  <div>
+                    <h3 className="font-semibold">Evidence checklist</h3>
+                    {detail.evidence.length ? (
+                      <ul className="mt-2 space-y-2">
+                        {detail.evidence.map((item) => (
+                          <li key={item.id} className="rounded border p-2">
+                            <span className="font-medium">
+                              {item.evidence_type.replaceAll("_", " ")}
+                            </span>
+                            <span className="ml-2 text-slate-500 uppercase">
+                              {item.status}
+                            </span>
+                            <p className="break-all text-slate-600">
+                              {item.value_reference}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-slate-500">No evidence submitted.</p>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">Checks and screening</h3>
+                    <ul className="mt-1">
+                      {detail.checks.map((check) => (
+                        <li key={check.check_type}>
+                          {check.check_type.replaceAll("_", " ")}:{" "}
+                          {check.passed ? "passed" : "not passed"}
+                        </li>
+                      ))}
+                    </ul>
+                    <p>
+                      Screening:{" "}
+                      {detail.screening?.screening_status ?? "not scheduled"}
+                    </p>
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">Review history</h3>
+                    {detail.history.length ? (
+                      <ul className="mt-1 space-y-1">
+                        {detail.history.map((item, index) => (
+                          <li key={`${item.created_at}-${index}`}>
+                            {item.action.replaceAll("_", " ")} by{" "}
+                            {item.reviewed_by} on{" "}
+                            {new Date(item.created_at).toLocaleString()}
+                            {item.notes ? ` — ${item.notes}` : ""}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="text-slate-500">
+                        No previous review actions.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                <p role="status">Loading verification details…</p>
+              )}
               <label className="block space-y-1 text-sm">
-                <span className="font-medium">
-                  Reason for rejection or suspension
-                </span>
+                <span className="font-medium">Reviewer notes / reason</span>
                 <textarea
                   aria-label="Action reason"
                   className="min-h-24 w-full rounded-md border p-2"
@@ -223,12 +318,43 @@ export function InterviewerReview() {
                   maxLength={1000}
                 />
               </label>
+              {selected.verification_status === "under_review" && (
+                <fieldset className="space-y-2 rounded border p-3 text-sm">
+                  <legend className="px-1 font-medium">
+                    Required approval attestations
+                  </legend>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={professionalReviewed}
+                      onChange={(event) =>
+                        setProfessionalReviewed(event.target.checked)
+                      }
+                    />
+                    I reviewed the professional evidence
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={screeningPassed}
+                      onChange={(event) =>
+                        setScreeningPassed(event.target.checked)
+                      }
+                    />
+                    The interviewer passed the screening call
+                  </label>
+                </fieldset>
+              )}
               <div className="flex flex-wrap gap-2">
                 {selected.verification_status === "under_review" && (
                   <>
                     <Button
-                      disabled={activeAction !== null}
-                      onClick={() => void perform("approve")}
+                      disabled={
+                        activeAction !== null ||
+                        !professionalReviewed ||
+                        !screeningPassed
+                      }
+                      onClick={() => void perform("verify")}
                     >
                       Approve
                     </Button>
@@ -239,7 +365,23 @@ export function InterviewerReview() {
                     >
                       Reject
                     </Button>
+                    <Button
+                      variant="outline"
+                      disabled={activeAction !== null}
+                      onClick={() => void perform("request_more_evidence")}
+                    >
+                      Request more evidence
+                    </Button>
                   </>
+                )}
+                {(selected.verification_status === "pending" ||
+                  selected.verification_status === "rejected") && (
+                  <Button
+                    disabled={activeAction !== null}
+                    onClick={() => void perform("under_review")}
+                  >
+                    Mark under review
+                  </Button>
                 )}
                 {selected.verification_status === "verified" && (
                   <Button

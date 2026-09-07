@@ -24,6 +24,8 @@ existing service Dockerfiles or Python entry points.
 
 Run all checks with `bash scripts/check.sh`. See [architecture](docs/architecture.md),
 [API errors](docs/api-errors.md), and [events](docs/events.md).
+Frontend setup, role workflows, and the manual product test are in the
+[frontend user guide](docs/frontend-user-guide.md).
 Infrastructure lifecycle and inspection commands are in the
 [local development guide](docs/local-development.md).
 Production environment requirements and current provider blockers are documented in the

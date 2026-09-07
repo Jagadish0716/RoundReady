@@ -80,6 +80,14 @@ class Slot(Base):
     held_by_candidate_id: Mapped[UUID | None] = mapped_column(nullable=True)
     hold_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     hold_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class InterviewerEligibility(Base):
+    __tablename__ = "interviewer_eligibility"
+
+    interviewer_id: Mapped[UUID] = mapped_column(primary_key=True)
+    verified: Mapped[bool] = mapped_column(default=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

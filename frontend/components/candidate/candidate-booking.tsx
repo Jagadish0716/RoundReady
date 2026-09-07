@@ -258,6 +258,11 @@ export function CandidateBooking() {
                   <p className="text-sm text-neutral-600">
                     Interviewer {slot.interviewer_id}
                   </p>
+                  {slot.roundready_verified ? (
+                    <p className="mt-1 text-xs font-medium text-green-700">
+                      RoundReady Verified
+                    </p>
+                  ) : null}
                 </div>
                 <span className="font-semibold">₹200</span>
               </div>

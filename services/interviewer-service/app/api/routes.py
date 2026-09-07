@@ -4,17 +4,26 @@ from uuid import UUID
 from app.api.schemas import (
     BlockoutCreateRequest,
     BlockoutResponse,
+    CandidateTrustResponse,
+    EvidenceInput,
     ProfileResponse,
     ProfileUpsertRequest,
     RejectionRequest,
     SkillReplaceRequest,
     SkillResponse,
     SuspensionRequest,
+    VerificationDetailResponse,
+    VerificationReviewRequest,
     WeeklyRuleResponse,
     WeeklyRulesReplaceRequest,
 )
 from app.application.interviewer_service import InterviewerService
-from app.dependencies import AdminIdentity, DatabaseSession, InterviewerIdentity
+from app.dependencies import (
+    AdminIdentity,
+    AuthenticatedIdentity,
+    DatabaseSession,
+    InterviewerIdentity,
+)
 from app.domain.models import VerificationStatus
 from fastapi import APIRouter, Query, Response, status
 
@@ -43,6 +52,33 @@ async def submit_verification(
 ) -> ProfileResponse:
     return ProfileResponse.model_validate(
         await InterviewerService(session).submit_verification(identity.user_id)
+    )
+
+
+@router.get("/me/verification", response_model=VerificationDetailResponse)
+async def own_verification(
+    identity: InterviewerIdentity, session: DatabaseSession
+) -> VerificationDetailResponse:
+    return VerificationDetailResponse.model_validate(
+        await InterviewerService(session).get_verification(identity.user_id)
+    )
+
+
+@router.put("/me/verification/evidence", response_model=VerificationDetailResponse)
+async def put_verification_evidence(
+    request: EvidenceInput, identity: InterviewerIdentity, session: DatabaseSession
+) -> VerificationDetailResponse:
+    return VerificationDetailResponse.model_validate(
+        await InterviewerService(session).upsert_evidence(identity.user_id, request)
+    )
+
+
+@router.get("/{interviewer_id}/trust", response_model=CandidateTrustResponse)
+async def candidate_trust(
+    interviewer_id: UUID, _identity: AuthenticatedIdentity, session: DatabaseSession
+) -> CandidateTrustResponse:
+    return CandidateTrustResponse.model_validate(
+        await InterviewerService(session).candidate_trust(interviewer_id)
     )
 
 
@@ -135,6 +171,35 @@ async def admin_list_interviewers(
         ProfileResponse.model_validate(item)
         for item in await InterviewerService(session).list_profiles(verification_status)
     ]
+
+
+@router.get(
+    "/admin/interviewers/{interviewer_id}/verification",
+    response_model=VerificationDetailResponse,
+)
+async def admin_verification_detail(
+    interviewer_id: UUID, _admin: AdminIdentity, session: DatabaseSession
+) -> VerificationDetailResponse:
+    return VerificationDetailResponse.model_validate(
+        await InterviewerService(session).get_verification(interviewer_id, include_history=True)
+    )
+
+
+@router.post(
+    "/admin/interviewers/{interviewer_id}/verification/review",
+    response_model=VerificationDetailResponse,
+)
+async def review_verification(
+    interviewer_id: UUID,
+    request: VerificationReviewRequest,
+    admin: AdminIdentity,
+    session: DatabaseSession,
+) -> VerificationDetailResponse:
+    return VerificationDetailResponse.model_validate(
+        await InterviewerService(session).review_verification(
+            interviewer_id, admin.user_id, request
+        )
+    )
 
 
 @router.post("/admin/interviewers/{interviewer_id}/approve", response_model=ProfileResponse)

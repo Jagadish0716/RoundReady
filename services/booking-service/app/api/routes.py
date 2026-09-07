@@ -7,6 +7,7 @@ from app.api.schemas import (
     BookingResponse,
     GenerateSlotsRequest,
     HoldResponse,
+    InterviewerEligibilityEventRequest,
     PaymentEventRequest,
     SlotResponse,
     TransitionRequest,
@@ -20,7 +21,7 @@ from app.dependencies import (
     HoldStore,
 )
 from app.domain.models import BookingStatus
-from fastapi import APIRouter, Header, Query
+from fastapi import APIRouter, Header, Query, Response
 from roundready_common.errors import ServiceError
 
 router = APIRouter(prefix="/v1", tags=["booking"])
@@ -154,3 +155,20 @@ async def payment(
             request.currency,
         )
     )
+
+
+@router.post("/internal/interviewer-verification-events", status_code=204)
+async def interviewer_verification_event(
+    request: InterviewerEligibilityEventRequest,
+    _admin: AdminIdentity,
+    session: DatabaseSession,
+    holds: HoldStore,
+    settings: AppSettings,
+) -> Response:
+    await service(session, holds, settings).set_interviewer_eligibility(
+        request.event_id,
+        request.interviewer_id,
+        request.event_type == "interviewer.verification.approved.v1",
+        request.event_type,
+    )
+    return Response(status_code=204)

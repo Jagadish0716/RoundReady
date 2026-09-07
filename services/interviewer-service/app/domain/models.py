@@ -35,6 +35,35 @@ class VerificationStatus(StrEnum):
     SUSPENDED = "suspended"
 
 
+class VerificationCheckType(StrEnum):
+    EMAIL_VERIFIED = "email_verified"
+    MOBILE_VERIFIED = "mobile_verified"
+    LINKEDIN_REVIEWED = "linkedin_reviewed"
+    COMPANY_EMAIL_VERIFIED = "company_email_verified"
+    PROFESSIONAL_EVIDENCE_REVIEWED = "professional_evidence_reviewed"
+    SCREENING_CALL_PASSED = "screening_call_passed"
+
+
+class EvidenceType(StrEnum):
+    LINKEDIN = "linkedin"
+    COMPANY_EMAIL = "company_email"
+    GITHUB_OR_PORTFOLIO = "github_or_portfolio"
+    SUPPORTING_DOCUMENT = "supporting_document"
+
+
+class EvidenceStatus(StrEnum):
+    PENDING = "pending"
+    VERIFIED = "verified"
+    REJECTED = "rejected"
+
+
+class ScreeningStatus(StrEnum):
+    NOT_SCHEDULED = "not_scheduled"
+    PENDING = "pending"
+    PASSED = "passed"
+    FAILED = "failed"
+
+
 class InterviewerProfile(Base):
     __tablename__ = "interviewer_profiles"
     __table_args__ = (
@@ -138,6 +167,91 @@ class AvailabilityBlockout(Base):
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class InterviewerVerification(Base):
+    __tablename__ = "interviewer_verifications"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    interviewer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("interviewer_profiles.user_id", ondelete="CASCADE"), unique=True, index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), default=VerificationStatus.PENDING.value)
+    submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by: Mapped[UUID | None] = mapped_column(nullable=True)
+    rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suspension_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class VerificationEvidence(Base):
+    __tablename__ = "interviewer_verification_evidence"
+    __table_args__ = (
+        UniqueConstraint("interviewer_id", "evidence_type", name="uq_verification_evidence_type"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    interviewer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("interviewer_profiles.user_id", ondelete="CASCADE"), index=True
+    )
+    evidence_type: Mapped[str] = mapped_column(String(48))
+    value_reference: Mapped[str] = mapped_column(String(2048))
+    status: Mapped[str] = mapped_column(String(32), default=EvidenceStatus.PENDING.value)
+    reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewed_by: Mapped[UUID | None] = mapped_column(nullable=True)
+
+
+class VerificationCheck(Base):
+    __tablename__ = "interviewer_verification_checks"
+    __table_args__ = (
+        UniqueConstraint("interviewer_id", "check_type", name="uq_verification_check_type"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    interviewer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("interviewer_profiles.user_id", ondelete="CASCADE"), index=True
+    )
+    check_type: Mapped[str] = mapped_column(String(64))
+    passed: Mapped[bool] = mapped_column(default=False)
+    reviewed_by: Mapped[UUID | None] = mapped_column(nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ScreeningCall(Base):
+    __tablename__ = "interviewer_screening_calls"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    interviewer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("interviewer_profiles.user_id", ondelete="CASCADE"), unique=True, index=True
+    )
+    screening_status: Mapped[str] = mapped_column(
+        String(32), default=ScreeningStatus.NOT_SCHEDULED.value
+    )
+    reviewed_by: Mapped[UUID | None] = mapped_column(nullable=True)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reviewer_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    communication_assessment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    technical_assessment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    overall_result: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+
+class VerificationReviewHistory(Base):
+    __tablename__ = "interviewer_verification_review_history"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    interviewer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("interviewer_profiles.user_id", ondelete="CASCADE"), index=True
+    )
+    action: Mapped[str] = mapped_column(String(48))
+    from_status: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    to_status: Mapped[str] = mapped_column(String(32))
+    reviewed_by: Mapped[UUID] = mapped_column()
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

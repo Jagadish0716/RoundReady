@@ -8,8 +8,10 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InterviewerReview } from "@/components/admin/interviewer-review";
-import { ApiClientError } from "@/lib/api/client";
-import type { InterviewerProfile } from "@/types/interviewer";
+import type {
+  InterviewerProfile,
+  VerificationDetail,
+} from "@/types/interviewer";
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("@/components/providers/auth-provider", () => ({
@@ -35,145 +37,118 @@ const profile: InterviewerProfile = {
   updated_at: "2026-09-02T10:00:00Z",
 };
 
+const detail: VerificationDetail = {
+  interviewer_id: profile.user_id,
+  status: "under_review",
+  submitted_at: "2026-09-02T10:00:00Z",
+  reviewed_at: null,
+  rejection_reason: null,
+  suspension_reason: null,
+  evidence: [
+    {
+      id: "22222222-2222-4222-8222-222222222222",
+      evidence_type: "company_email",
+      value_reference: "engineer@roundready.example",
+      status: "pending",
+      reviewer_notes: null,
+      created_at: "2026-09-02T10:00:00Z",
+      reviewed_at: null,
+    },
+  ],
+  checks: [],
+  screening: null,
+  history: [],
+};
+
 describe("InterviewerReview", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    mocks.request.mockImplementation((path: string) => {
+      if (path === "/v1/interviewers/admin/interviewers")
+        return Promise.resolve([profile]);
+      if (path.endsWith("/verification")) return Promise.resolve(detail);
+      if (path.endsWith("/verification/review")) return Promise.resolve(detail);
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
   });
   afterEach(() => {
     vi.restoreAllMocks();
     cleanup();
   });
 
-  it("loads and renders the review queue and profile detail", async () => {
-    mocks.request.mockResolvedValue([profile]);
+  it("shows profile, evidence, screening and history to admins", async () => {
     render(<InterviewerReview />);
-    expect(screen.getByRole("status")).toHaveTextContent("Loading");
     expect(
       await screen.findByRole("heading", { name: profile.headline }),
     ).toBeInTheDocument();
-    expect(screen.getByText("RoundReady Labs")).toBeInTheDocument();
-    expect(screen.getByText(profile.bio!)).toBeInTheDocument();
+    expect(
+      await screen.findByText("engineer@roundready.example"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Screening: not scheduled/)).toBeInTheDocument();
+    expect(screen.getByText(/No previous review actions/)).toBeInTheDocument();
+  });
+
+  it("approves only with professional review and a passed screening result", async () => {
+    render(<InterviewerReview />);
+    const approve = await screen.findByRole("button", { name: "Approve" });
+    expect(approve).toBeDisabled();
+    fireEvent.click(
+      screen.getByLabelText("I reviewed the professional evidence"),
+    );
+    fireEvent.click(
+      screen.getByLabelText("The interviewer passed the screening call"),
+    );
+    fireEvent.click(approve);
+    await screen.findByText("Verification status updated.");
     expect(mocks.request).toHaveBeenCalledWith(
-      "/v1/interviewers/admin/verification-queue",
+      `/v1/interviewers/admin/interviewers/${profile.user_id}/verification/review`,
+      expect.objectContaining({
+        method: "POST",
+        body: expect.objectContaining({
+          action: "verify",
+          checks: expect.objectContaining({
+            professional_evidence_reviewed: true,
+          }),
+          screening: expect.objectContaining({ screening_status: "passed" }),
+        }),
+      }),
     );
   });
 
-  it("shows the empty state", async () => {
-    mocks.request.mockResolvedValue([]);
+  it("requires a reason when requesting more evidence", async () => {
     render(<InterviewerReview />);
-    expect(
-      await screen.findByText(/No interviewers currently require review/),
-    ).toBeInTheDocument();
-  });
-
-  it("approves after confirmation and refreshes the queue", async () => {
-    mocks.request
-      .mockResolvedValueOnce([profile])
-      .mockResolvedValueOnce({ ...profile, verification_status: "verified" })
-      .mockResolvedValueOnce([]);
-    render(<InterviewerReview />);
-    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
-    expect(
-      await screen.findByText("Verification status updated."),
-    ).toBeInTheDocument();
-    expect(window.confirm).toHaveBeenCalled();
-    expect(mocks.request).toHaveBeenNthCalledWith(
-      2,
-      `/v1/interviewers/admin/interviewers/${profile.user_id}/approve`,
-      { method: "POST" },
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Request more evidence" }),
     );
-    expect(mocks.request).toHaveBeenCalledTimes(3);
-  });
-
-  it("requires and submits a rejection reason", async () => {
-    mocks.request
-      .mockResolvedValueOnce([profile])
-      .mockResolvedValueOnce({ ...profile, verification_status: "rejected" })
-      .mockResolvedValueOnce([]);
-    render(<InterviewerReview />);
-    fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "reason is required",
     );
     fireEvent.change(screen.getByLabelText("Action reason"), {
-      target: { value: "Experience could not be verified" },
+      target: { value: "Provide proof of company-email ownership" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Reject" }));
-    await screen.findByText("Verification status updated.");
-    expect(mocks.request).toHaveBeenNthCalledWith(
-      2,
-      `/v1/interviewers/admin/interviewers/${profile.user_id}/reject`,
-      { method: "POST", body: { reason: "Experience could not be verified" } },
+    fireEvent.click(
+      screen.getByRole("button", { name: "Request more evidence" }),
     );
-  });
-
-  it("supports the existing suspend contract with a required reason", async () => {
-    const verified = { ...profile, verification_status: "verified" as const };
-    mocks.request
-      .mockResolvedValueOnce([verified])
-      .mockResolvedValueOnce({ ...verified, verification_status: "suspended" })
-      .mockResolvedValueOnce([]);
-    render(<InterviewerReview />);
-    fireEvent.change(await screen.findByLabelText("Action reason"), {
-      target: { value: "Policy review" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Suspend" }));
-    await screen.findByText("Verification status updated.");
-    expect(mocks.request).toHaveBeenNthCalledWith(
-      2,
-      `/v1/interviewers/admin/interviewers/${profile.user_id}/suspend`,
-      { method: "POST", body: { reason: "Policy review" } },
-    );
-  });
-
-  it("maps invalid transitions without inventing a status", async () => {
-    mocks.request
-      .mockResolvedValueOnce([profile])
-      .mockRejectedValueOnce(
-        new ApiClientError(
-          "Invalid",
-          409,
-          "conflict",
-          "invalid_transition",
-          null,
-          null,
-        ),
-      );
-    render(<InterviewerReview />);
-    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "no longer valid",
-    );
-    expect(screen.getAllByText("under review").length).toBeGreaterThan(0);
-  });
-
-  it("disables duplicate actions while mutation is pending", async () => {
-    mocks.request
-      .mockResolvedValueOnce([profile])
-      .mockReturnValueOnce(new Promise(() => undefined));
-    render(<InterviewerReview />);
-    const approve = await screen.findByRole("button", { name: "Approve" });
-    fireEvent.click(approve);
-    fireEvent.click(approve);
-    await waitFor(() => expect(approve).toBeDisabled());
-    expect(mocks.request).toHaveBeenCalledTimes(2);
-  });
-
-  it("shows queue API failures", async () => {
-    mocks.request.mockRejectedValue(
-      new ApiClientError(
-        "Review service unavailable",
-        503,
-        "server",
-        "unavailable",
-        null,
-        null,
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        `/v1/interviewers/admin/interviewers/${profile.user_id}/verification/review`,
+        {
+          method: "POST",
+          body: {
+            action: "request_more_evidence",
+            reason: "Provide proof of company-email ownership",
+          },
+        },
       ),
     );
+  });
+
+  it("shows the empty state", async () => {
+    mocks.request.mockResolvedValueOnce([]);
     render(<InterviewerReview />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Review service unavailable",
-    );
+    expect(
+      await screen.findByText(/No interviewers currently require review/),
+    ).toBeInTheDocument();
   });
 });

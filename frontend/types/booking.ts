@@ -28,6 +28,7 @@ export interface InterviewSlot {
   ends_at: string;
   status: SlotStatus;
   hold_expires_at: string | null;
+  roundready_verified: boolean;
 }
 
 export interface SlotHold {

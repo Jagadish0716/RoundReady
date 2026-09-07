@@ -1,11 +1,17 @@
 from datetime import datetime, time
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from app.domain.models import VerificationStatus
+from app.domain.models import (
+    EvidenceStatus,
+    EvidenceType,
+    ScreeningStatus,
+    VerificationCheckType,
+    VerificationStatus,
+)
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -175,3 +181,97 @@ class RejectionRequest(BaseModel):
 
 class SuspensionRequest(RejectionRequest):
     pass
+
+
+class EvidenceInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    evidence_type: EvidenceType
+    value_reference: Annotated[NonBlank, Field(max_length=2048)]
+
+    @model_validator(mode="after")
+    def safe_reference(self) -> "EvidenceInput":
+        if self.evidence_type is EvidenceType.SUPPORTING_DOCUMENT:
+            if not self.value_reference.startswith("private-object://"):
+                raise ValueError("supporting documents require a private object reference")
+        elif self.evidence_type is EvidenceType.COMPANY_EMAIL:
+            if "@" not in self.value_reference or len(self.value_reference) > 320:
+                raise ValueError("company email is invalid")
+        else:
+            parsed = HttpUrl(self.value_reference)
+            if self.evidence_type is EvidenceType.LINKEDIN:
+                host = parsed.host or ""
+                if host != "linkedin.com" and not host.endswith(".linkedin.com"):
+                    raise ValueError("LinkedIn evidence must use linkedin.com")
+        return self
+
+
+class EvidenceResponse(EvidenceInput):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    status: EvidenceStatus
+    reviewer_notes: str | None
+    created_at: datetime
+    reviewed_at: datetime | None
+
+
+class VerificationCheckResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    check_type: VerificationCheckType
+    passed: bool
+    reviewed_at: datetime | None
+
+
+class ScreeningInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    screening_status: ScreeningStatus
+    reviewer_notes: Annotated[str, Field(max_length=2000)] | None = None
+    communication_assessment: Annotated[str, Field(max_length=2000)] | None = None
+    technical_assessment: Annotated[str, Field(max_length=2000)] | None = None
+    overall_result: Annotated[str, Field(max_length=32)] | None = None
+
+
+class ScreeningResponse(ScreeningInput):
+    model_config = ConfigDict(from_attributes=True)
+    reviewed_at: datetime | None
+
+
+class ReviewHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    action: str
+    from_status: VerificationStatus | None
+    to_status: VerificationStatus
+    reviewed_by: UUID
+    notes: str | None
+    created_at: datetime
+
+
+class VerificationDetailResponse(BaseModel):
+    interviewer_id: UUID
+    status: VerificationStatus
+    submitted_at: datetime | None
+    reviewed_at: datetime | None
+    rejection_reason: str | None
+    suspension_reason: str | None
+    evidence: list[EvidenceResponse]
+    checks: list[VerificationCheckResponse]
+    screening: ScreeningResponse | None
+    history: list[ReviewHistoryResponse] = Field(default_factory=list)
+
+
+class VerificationReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    action: Literal[
+        "under_review", "verify", "reject", "request_more_evidence", "suspend", "reactivate"
+    ]
+    reason: Annotated[str, Field(max_length=1000)] | None = None
+    checks: dict[VerificationCheckType, bool] = Field(default_factory=dict)
+    evidence_statuses: dict[UUID, EvidenceStatus] = Field(default_factory=dict)
+    screening: ScreeningInput | None = None
+
+
+class CandidateTrustResponse(BaseModel):
+    interviewer_id: UUID
+    roundready_verified: bool
+    contact_verified: bool
+    professional_experience_reviewed: bool
+    screening_passed: bool

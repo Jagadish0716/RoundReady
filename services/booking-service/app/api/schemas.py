@@ -43,6 +43,7 @@ class SlotResponse(BaseModel):
     ends_at: datetime
     status: SlotStatus
     hold_expires_at: datetime | None
+    roundready_verified: bool = True
 
 
 class HoldResponse(BaseModel):
@@ -86,3 +87,12 @@ class PaymentEventRequest(BaseModel):
     event_type: Annotated[str, Field(pattern=r"^payment\.(captured|failed|refunded)\.v1$")]
     amount_paise: Annotated[int, Field(ge=1)]
     currency: Annotated[str, Field(pattern=r"^INR$")]
+
+
+class InterviewerEligibilityEventRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_id: UUID
+    interviewer_id: UUID
+    event_type: Annotated[
+        str, Field(pattern=r"^interviewer\.verification\.(approved|rejected|suspended)\.v1$")
+    ]
