@@ -9,6 +9,7 @@ from app.main import create_app
 from fastapi.testclient import TestClient
 
 USER_ID = uuid4()
+OTHER_USER_ID = uuid4()
 
 
 class FakeLimiter:
@@ -30,10 +31,11 @@ def gateway() -> Iterator[tuple[TestClient, list[httpx.Request], FakeLimiter]]:
         requests.append(request)
         if request.url.path == "/v1/auth/me":
             token = request.headers.get("Authorization", "").removeprefix("Bearer ")
-            if token != "valid-token":
+            user_ids = {"valid-token": USER_ID, "other-token": OTHER_USER_ID}
+            if token not in user_ids:
                 return httpx.Response(401, json={"error": {"code": "invalid_access_token"}})
             return httpx.Response(
-                200, json={"id": str(USER_ID), "role": "candidate", "is_active": True}
+                200, json={"id": str(user_ids[token]), "role": "candidate", "is_active": True}
             )
         return httpx.Response(
             200,
@@ -114,7 +116,34 @@ def test_auth_rate_limit_returns_429(
         "/v1/auth/login", json={"email": "user@example.in", "password": "password"}
     )
     assert response.status_code == 429
-    assert limiter.calls[-1] == ("auth:v1/auth/login:testclient", 10, 60)
+    assert limiter.calls[-1] == ("auth:v1/auth/login:client:testclient", 10, 60)
+
+
+def test_health_ready_and_cors_preflight_do_not_consume_quota(
+    gateway: tuple[TestClient, list[httpx.Request], FakeLimiter],
+) -> None:
+    client, _, limiter = gateway
+    assert client.get("/health").status_code == 200
+    # The test Redis dependency is intentionally unavailable, so readiness may
+    # be 503; the probe must still bypass the user quota.
+    assert client.get("/ready").status_code in {200, 503}
+    assert client.options("/v1/users/me/profile").status_code == 204
+    assert limiter.calls == []
+
+
+def test_authenticated_users_have_separate_rate_limit_buckets(
+    gateway: tuple[TestClient, list[httpx.Request], FakeLimiter],
+) -> None:
+    client, _, limiter = gateway
+    for token in ("valid-token", "other-token"):
+        response = client.get(
+            "/v1/interviews/sessions", headers={"Authorization": f"Bearer {token}"}
+        )
+        assert response.status_code == 200
+    assert limiter.calls == [
+        (f"user:{USER_ID}", 2, 60),
+        (f"user:{OTHER_USER_ID}", 2, 60),
+    ]
 
 
 def test_configured_cors_allows_only_explicit_origin(monkeypatch: pytest.MonkeyPatch) -> None:

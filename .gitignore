@@ -10,3 +10,7 @@ __pycache__/
 htmlcov/
 dist/
 *.egg-info/
+commands.txt
+/infrastructure/terraform/*.tfplan
+/roundready-*-plan.json
+/roundready-*.json

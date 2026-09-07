@@ -5,6 +5,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AuthProvider, useAuth } from "@/components/providers/auth-provider";
@@ -66,6 +67,14 @@ function Probe() {
   );
 }
 
+function RequestIdentityProbe({ seen }: { seen: Array<unknown> }) {
+  const { request } = useAuth();
+  useEffect(() => {
+    seen.push(request);
+  }, [request, seen]);
+  return null;
+}
+
 async function establishSession(): Promise<void> {
   vi.mocked(authApi.login).mockResolvedValue(oldTokens);
   vi.mocked(authApi.currentUser).mockResolvedValue(user);
@@ -124,6 +133,33 @@ describe("AuthProvider", () => {
     expect(vi.mocked(apiClient.apiRequest).mock.calls[2]?.[1]).toMatchObject({
       accessToken: "new-access",
     });
+  });
+
+  it("keeps the authenticated request function stable across token rotation", async () => {
+    const seen: Array<unknown> = [];
+    render(
+      <AuthProvider>
+        <Probe />
+        <RequestIdentityProbe seen={seen} />
+      </AuthProvider>,
+    );
+    await establishSession();
+    vi.mocked(apiClient.apiRequest)
+      .mockRejectedValueOnce(
+        new apiClient.ApiClientError(
+          "Expired",
+          401,
+          "unauthenticated",
+          "expired",
+          null,
+          null,
+        ),
+      )
+      .mockResolvedValueOnce({ ok: true });
+    vi.mocked(authApi.refresh).mockResolvedValue(newTokens);
+    fireEvent.click(screen.getByText("request"));
+    await waitFor(() => expect(apiClient.apiRequest).toHaveBeenCalledTimes(2));
+    expect(seen).toHaveLength(1);
   });
 
   it("clears the session when refresh recovery fails", async () => {

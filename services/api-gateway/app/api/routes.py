@@ -70,6 +70,11 @@ async def proxy(
     limiter: Limiter,
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> Response:
+    # CORS middleware handles browser preflights when CORS is configured. Keep
+    # the proxy fail-safe as well so an OPTIONS request can never consume a
+    # user's API quota or trigger auth introspection.
+    if request.method.upper() == "OPTIONS":
+        return Response(status_code=204)
     if "/internal/" in f"/{path}/":
         raise ServiceError(
             code="route_not_found", message="API route was not found", status_code=404
@@ -88,11 +93,11 @@ async def proxy(
                 status_code=403,
             )
     remote = request.client.host if request.client else "unknown"
-    rate_key = str(identity.user_id) if identity else remote
+    rate_key = f"user:{identity.user_id}" if identity else f"client:{remote}"
     limit = settings.rate_limit_requests
     window = settings.rate_limit_window_seconds
     if public and path in {"v1/auth/login", "v1/auth/register", "v1/auth/refresh"}:
-        rate_key = f"auth:{path}:{rate_key}"
+        rate_key = f"auth:{path}:client:{remote}"
         limit = settings.auth_rate_limit_requests
         window = settings.auth_rate_limit_window_seconds
     if not await limiter.allow(rate_key, limit, window):

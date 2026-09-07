@@ -71,65 +71,73 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return refreshRef.current;
   }, [router, update]);
 
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      state,
-      async login(email, password) {
-        update({ type: "login_started" });
-        try {
-          const tokens = await authApi.login(email, password);
-          const user = await authApi.currentUser(tokens.accessToken);
-          update({ type: "authenticated", session: { user, tokens } });
-          return user;
-        } catch (error) {
-          update({ type: "signed_out" });
+  const login = useCallback(
+    async (email: string, password: string) => {
+      update({ type: "login_started" });
+      try {
+        const tokens = await authApi.login(email, password);
+        const user = await authApi.currentUser(tokens.accessToken);
+        update({ type: "authenticated", session: { user, tokens } });
+        return user;
+      } catch (error) {
+        update({ type: "signed_out" });
+        throw error;
+      }
+    },
+    [update],
+  );
+
+  const refresh = useCallback(async () => {
+    await recoverSession();
+  }, [recoverSession]);
+
+  const logout = useCallback(async () => {
+    const current = stateRef.current;
+    if (current.status !== "authenticated") {
+      router.replace("/login");
+      return;
+    }
+    let failure: unknown;
+    try {
+      await authApi.logout(
+        current.session.tokens.accessToken,
+        current.session.tokens.refreshToken,
+      );
+    } catch (error) {
+      failure = error;
+    } finally {
+      update({ type: "signed_out" });
+      router.replace("/login");
+    }
+    if (failure) throw failure;
+  }, [router, update]);
+
+  const request = useCallback(
+    async <T,>(path: string, options: ApiRequestOptions = {}) => {
+      const current = stateRef.current;
+      if (current.status !== "authenticated")
+        throw new Error("No active session");
+      try {
+        return await apiRequest<T>(path, {
+          ...options,
+          accessToken: current.session.tokens.accessToken,
+        });
+      } catch (error) {
+        if (!(error instanceof ApiClientError) || error.status !== 401)
           throw error;
-        }
-      },
-      async refresh() {
-        await recoverSession();
-      },
-      async logout() {
-        const current = stateRef.current;
-        if (current.status !== "authenticated") {
-          router.replace("/login");
-          return;
-        }
-        let failure: unknown;
-        try {
-          await authApi.logout(
-            current.session.tokens.accessToken,
-            current.session.tokens.refreshToken,
-          );
-        } catch (error) {
-          failure = error;
-        } finally {
-          update({ type: "signed_out" });
-          router.replace("/login");
-        }
-        if (failure) throw failure;
-      },
-      async request<T>(path: string, options: ApiRequestOptions = {}) {
-        const current = stateRef.current;
-        if (current.status !== "authenticated")
-          throw new Error("No active session");
-        try {
-          return await apiRequest<T>(path, {
-            ...options,
-            accessToken: current.session.tokens.accessToken,
-          });
-        } catch (error) {
-          if (!(error instanceof ApiClientError) || error.status !== 401)
-            throw error;
-          const recovered = await recoverSession();
-          return apiRequest<T>(path, {
-            ...options,
-            accessToken: recovered.tokens.accessToken,
-          });
-        }
-      },
-    }),
-    [recoverSession, router, state, update],
+        const recovered = await recoverSession();
+        return apiRequest<T>(path, {
+          ...options,
+          accessToken: recovered.tokens.accessToken,
+        });
+      }
+    },
+    [recoverSession],
+  );
+
+  const value = useMemo<AuthContextValue>(
+    () => ({ state, login, refresh, logout, request }),
+    [state, login, refresh, logout, request],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
