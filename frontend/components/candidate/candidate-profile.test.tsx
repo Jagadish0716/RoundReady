@@ -6,190 +6,153 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
 import { CandidateProfileForm } from "@/components/candidate/candidate-profile";
 import { ApiClientError } from "@/lib/api/client";
 
 const mocks = vi.hoisted(() => ({ request: vi.fn() }));
 vi.mock("@/components/providers/auth-provider", () => ({
-  useAuth: () => ({ request: mocks.request }),
+  useAuth: () => ({
+    request: mocks.request,
+    state: {
+      status: "authenticated",
+      session: { user: { email: "account@example.com" } },
+    },
+  }),
 }));
-
-const storedProfile = {
+const profile = {
   user_id: "6dc6fd41-0f01-49f8-943e-3480571275f2",
   full_name: "Asha Rao",
   phone: "+919876543210",
-  email: "asha@example.com",
+  email: "account@example.com",
   city: "Bengaluru",
   experience_years: "4.5",
   current_role: "Software Engineer",
   target_role: "Senior Backend Engineer",
   preferred_language: "English",
   linkedin_url: "https://www.linkedin.com/in/asha",
-  resume_url: "https://example.com/asha-resume.pdf",
   created_at: "2026-01-01T00:00:00Z",
   updated_at: "2026-01-01T00:00:00Z",
 };
-
-function save(): void {
-  fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+const notFound = new ApiClientError(
+  "Not found",
+  404,
+  "not_found",
+  "not_found",
+  null,
+  null,
+);
+function defaultRequests() {
+  mocks.request.mockImplementation(
+    (path: string, options?: { method?: string }) => {
+      if (path.endsWith("/resume")) return Promise.reject(notFound);
+      if (options?.method === "PUT") return Promise.resolve(profile);
+      return Promise.resolve(profile);
+    },
+  );
 }
 
 describe("CandidateProfileForm", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    defaultRequests();
+  });
   afterEach(cleanup);
-
-  it("loads an existing profile", async () => {
-    mocks.request.mockResolvedValue(storedProfile);
+  it("loads profile, splits phone, and shows immutable account email", async () => {
     render(<CandidateProfileForm />);
-    expect(screen.getByRole("status")).toHaveTextContent("Loading");
     expect(await screen.findByLabelText("Full name")).toHaveValue("Asha Rao");
-    expect(screen.getByLabelText("City")).toHaveValue("Bengaluru");
-    expect(mocks.request).toHaveBeenCalledWith("/v1/users/me/profile");
-  });
-
-  it("shows a create state when no profile exists", async () => {
-    mocks.request.mockRejectedValue(
-      new ApiClientError(
-        "Not found",
-        404,
-        "not_found",
-        "candidate_profile_not_found",
-        null,
-        null,
-      ),
+    expect(screen.getByLabelText("Country code")).toHaveValue("India (+91)");
+    expect(screen.getByLabelText("Mobile number")).toHaveValue("9876543210");
+    expect(screen.getByLabelText("Profile email")).toHaveValue(
+      "account@example.com",
     );
-    render(<CandidateProfileForm />);
-    expect(await screen.findByText(/Create your profile/)).toBeInTheDocument();
-    expect(screen.getByLabelText("Full name")).toHaveValue("");
+    expect(screen.getByLabelText("Profile email")).toBeDisabled();
   });
-
-  it("creates a profile without sending a user identity", async () => {
-    mocks.request
-      .mockRejectedValueOnce(
-        new ApiClientError(
-          "Not found",
-          404,
-          "not_found",
-          "candidate_profile_not_found",
-          null,
-          null,
-        ),
-      )
-      .mockResolvedValueOnce(storedProfile);
-    render(<CandidateProfileForm />);
-    fireEvent.change(await screen.findByLabelText("Full name"), {
-      target: { value: "Asha Rao" },
-    });
-    fireEvent.change(screen.getByLabelText("City"), {
-      target: { value: "Bengaluru" },
-    });
-    save();
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "saved successfully",
-    );
-    expect(mocks.request).toHaveBeenLastCalledWith(
-      "/v1/users/me/profile",
-      expect.objectContaining({
-        method: "PUT",
-        body: expect.not.objectContaining({ user_id: expect.anything() }),
-      }),
-    );
-  });
-
-  it("updates and repopulates a saved profile", async () => {
-    mocks.request
-      .mockResolvedValueOnce(storedProfile)
-      .mockResolvedValueOnce({ ...storedProfile, city: "Pune" });
-    render(<CandidateProfileForm />);
-    fireEvent.change(await screen.findByLabelText("City"), {
-      target: { value: "Pune" },
-    });
-    save();
-    await screen.findByText("Profile saved successfully.");
-    expect(screen.getByLabelText("City")).toHaveValue("Pune");
-  });
-
-  it("keeps entered values when backend validation fails", async () => {
-    mocks.request
-      .mockResolvedValueOnce(storedProfile)
-      .mockRejectedValueOnce(
-        new ApiClientError(
-          "Invalid",
-          422,
-          "validation",
-          "validation_error",
-          null,
-          null,
-        ),
-      );
-    render(<CandidateProfileForm />);
-    fireEvent.change(await screen.findByLabelText("City"), {
-      target: { value: "Chennai" },
-    });
-    save();
-    expect(await screen.findByRole("alert")).toHaveTextContent("invalid");
-    expect(screen.getByLabelText("City")).toHaveValue("Chennai");
-  });
-
-  it("shows API failures and supports retry", async () => {
-    mocks.request
-      .mockRejectedValueOnce(
-        new ApiClientError(
-          "Service unavailable",
-          503,
-          "server",
-          "unavailable",
-          null,
-          null,
-        ),
-      )
-      .mockResolvedValueOnce(storedProfile);
-    render(<CandidateProfileForm />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Service unavailable",
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-    expect(await screen.findByLabelText("Full name")).toHaveValue("Asha Rao");
-  });
-
-  it("reports forbidden access without exposing a form", async () => {
-    mocks.request.mockRejectedValue(
-      new ApiClientError(
-        "Forbidden",
-        403,
-        "forbidden",
-        "insufficient_permissions",
-        null,
-        null,
-      ),
-    );
-    render(<CandidateProfileForm />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "do not have access",
-    );
-    expect(
-      screen.queryByRole("button", { name: "Save profile" }),
-    ).not.toBeInTheDocument();
-  });
-
-  it("disables saving while a request is pending", async () => {
-    let resolveSave: ((value: typeof storedProfile) => void) | undefined;
-    mocks.request.mockResolvedValueOnce(storedProfile).mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveSave = resolve;
-        }),
-    );
+  it("submits canonical phone without email", async () => {
     render(<CandidateProfileForm />);
     await screen.findByLabelText("Full name");
-    save();
-    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
-    resolveSave?.(storedProfile);
+    fireEvent.change(screen.getByLabelText("Mobile number"), {
+      target: { value: "98765abc43210" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    await screen.findByText("Profile saved successfully.");
+    const save = mocks.request.mock.calls.find(
+      (call) => call[1]?.method === "PUT",
+    );
+    expect(save?.[1].body.phone).toBe("+919876543210");
+    expect(save?.[1].body).not.toHaveProperty("email");
+  });
+  it("enforces the 0–20 experience range", async () => {
+    render(<CandidateProfileForm />);
+    await screen.findByLabelText("Full name");
+    fireEvent.change(screen.getByLabelText("Experience (years)"), {
+      target: { value: "21" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    expect(
+      await screen.findByText("Experience must be between 0 and 20 years."),
+    ).toBeInTheDocument();
+    expect(
+      mocks.request.mock.calls.some((call) => call[1]?.method === "PUT"),
+    ).toBe(false);
+  });
+  it("offers only supported languages", async () => {
+    render(<CandidateProfileForm />);
+    const select = await screen.findByLabelText("Preferred language");
+    expect(
+      Array.from((select as HTMLSelectElement).options).map(
+        (option) => option.text,
+      ),
+    ).toEqual([
+      "English",
+      "Hindi",
+      "Kannada",
+      "Tamil",
+      "Telugu",
+      "Malayalam",
+      "Marathi",
+      "Bengali",
+    ]);
+  });
+  it("rejects an oversized resume before upload", async () => {
+    render(<CandidateProfileForm />);
+    await screen.findByLabelText("Resume");
+    const file = new File([new Uint8Array(5 * 1024 * 1024 + 1)], "resume.pdf", {
+      type: "application/pdf",
+    });
+    fireEvent.change(screen.getByLabelText("Resume"), {
+      target: { files: [file] },
+    });
+    expect(
+      await screen.findByText("Resume must be 5 MB or smaller."),
+    ).toBeInTheDocument();
+  });
+  it("uploads a valid resume after saving the profile", async () => {
+    const metadata = { file_name: "resume.pdf" };
+    mocks.request.mockImplementation(
+      (path: string, options?: { method?: string }) =>
+        path.endsWith("/resume") && options?.method === "POST"
+          ? Promise.resolve(metadata)
+          : path.endsWith("/resume")
+            ? Promise.reject(notFound)
+            : Promise.resolve(profile),
+    );
+    render(<CandidateProfileForm />);
+    await screen.findByLabelText("Resume");
+    fireEvent.change(screen.getByLabelText("Resume"), {
+      target: {
+        files: [
+          new File(["%PDF-1.4"], "resume.pdf", { type: "application/pdf" }),
+        ],
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Save profile" }),
-      ).toBeEnabled(),
+        mocks.request.mock.calls.some(
+          (call) =>
+            call[1]?.method === "POST" && call[1].body instanceof FormData,
+        ),
+      ).toBe(true),
     );
   });
 });

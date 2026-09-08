@@ -24,6 +24,7 @@ class Role(StrEnum):
 class Identity:
     user_id: UUID
     role: Role
+    email: str
 
 
 AppSettings = Annotated[Settings, Depends(get_settings)]
@@ -77,7 +78,11 @@ async def authenticate(
         )
     try:
         body = response.json()
-        return Identity(user_id=UUID(str(body["id"])), role=Role(str(body["role"])))
+        return Identity(
+            user_id=UUID(str(body["id"])),
+            role=Role(str(body["role"])),
+            email=str(body["email"]),
+        )
     except (KeyError, TypeError, ValueError) as exc:
         raise ServiceError(
             code="authentication_service_invalid_response",

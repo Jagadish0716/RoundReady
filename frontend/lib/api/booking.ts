@@ -29,6 +29,12 @@ export function holdSlot(request: AuthenticatedRequest, slotId: string) {
   });
 }
 
+export function getPublicSlot(request: AuthenticatedRequest, slotId: string) {
+  return request<InterviewSlot>(
+    `/v1/public/slots/${encodeURIComponent(slotId)}`,
+  );
+}
+
 export function createBooking(
   request: AuthenticatedRequest,
   slotId: string,

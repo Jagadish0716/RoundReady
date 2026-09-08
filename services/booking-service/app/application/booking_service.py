@@ -81,29 +81,55 @@ class BookingService:
         await self.session.commit()
         return result
 
-    async def available_slots(self, starts_after: datetime, ends_before: datetime) -> list[Slot]:
+    async def available_slots(
+        self,
+        starts_after: datetime,
+        ends_before: datetime,
+        interviewer_id: UUID | None = None,
+    ) -> list[Slot]:
         now = datetime.now(UTC)
+        filters = [
+            Slot.starts_at >= starts_after,
+            Slot.ends_at <= ends_before,
+            Slot.interviewer_id.in_(
+                select(InterviewerEligibility.interviewer_id).where(
+                    InterviewerEligibility.verified.is_(True)
+                )
+            ),
+            or_(
+                Slot.status == SlotStatus.AVAILABLE,
+                (Slot.status == SlotStatus.HELD) & (Slot.hold_expires_at <= now),
+            ),
+        ]
+        if interviewer_id is not None:
+            filters.append(Slot.interviewer_id == interviewer_id)
         return list(
             (
-                await self.session.scalars(
-                    select(Slot)
-                    .where(
-                        Slot.starts_at >= starts_after,
-                        Slot.ends_at <= ends_before,
-                        Slot.interviewer_id.in_(
-                            select(InterviewerEligibility.interviewer_id).where(
-                                InterviewerEligibility.verified.is_(True)
-                            )
-                        ),
-                        or_(
-                            Slot.status == SlotStatus.AVAILABLE,
-                            (Slot.status == SlotStatus.HELD) & (Slot.hold_expires_at <= now),
-                        ),
-                    )
-                    .order_by(Slot.starts_at)
-                )
+                await self.session.scalars(select(Slot).where(*filters).order_by(Slot.starts_at))
             ).all()
         )
+
+    async def available_slot(self, slot_id: UUID) -> Slot:
+        now = datetime.now(UTC)
+        slot = await self.session.scalar(
+            select(Slot).where(
+                Slot.id == slot_id,
+                Slot.interviewer_id.in_(
+                    select(InterviewerEligibility.interviewer_id).where(
+                        InterviewerEligibility.verified.is_(True)
+                    )
+                ),
+                or_(
+                    Slot.status == SlotStatus.AVAILABLE,
+                    (Slot.status == SlotStatus.HELD) & (Slot.hold_expires_at <= now),
+                ),
+            )
+        )
+        if slot is None:
+            raise ServiceError(
+                code="slot_unavailable", message="Slot is not available", status_code=404
+            )
+        return slot
 
     async def hold(self, slot_id: UUID, candidate_id: UUID) -> tuple[str, datetime]:
         token = secrets.token_urlsafe(48)

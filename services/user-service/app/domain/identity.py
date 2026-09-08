@@ -13,3 +13,4 @@ class AuthenticatedRole(StrEnum):
 class InternalIdentity:
     user_id: UUID
     role: AuthenticatedRole
+    email: str

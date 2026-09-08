@@ -275,3 +275,19 @@ class CandidateTrustResponse(BaseModel):
     contact_verified: bool
     professional_experience_reviewed: bool
     screening_passed: bool
+
+
+class PublicInterviewerResponse(BaseModel):
+    interviewer_id: UUID
+    headline: str
+    job_title: str | None
+    experience_years: Decimal
+    bio: str | None
+    skills: list[SkillResponse]
+    interview_languages: list[str] = Field(default_factory=lambda: ["English"])
+    roundready_verified: bool = True
+    contact_verified: bool
+    professional_experience_reviewed: bool
+    screening_passed: bool
+    price_paise: int = 20000
+    currency: Literal["INR"] = "INR"

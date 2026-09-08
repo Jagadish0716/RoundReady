@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import { authErrorMessage } from "@/components/auth/auth-error";
 import { PasswordField } from "@/components/auth/password-field";
@@ -15,6 +15,7 @@ import type { RegistrationRole } from "@/types/auth";
 
 export function RegisterForm() {
   const router = useRouter();
+  const search = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -34,7 +35,9 @@ export function RegisterForm() {
     setSubmitting(true);
     try {
       await authApi.register(email.trim(), password, role);
-      router.replace("/login?registered=1");
+      const requested = search.get("next");
+      const suffix = requested ? `&next=${encodeURIComponent(requested)}` : "";
+      router.replace(`/login?registered=1${suffix}`);
     } catch (error) {
       setApiError(authErrorMessage(error, "register"));
     } finally {
@@ -108,7 +111,14 @@ export function RegisterForm() {
       </Button>
       <p className="text-center text-sm text-neutral-600">
         Already registered?{" "}
-        <Link className="font-medium text-neutral-900" href="/login">
+        <Link
+          className="font-medium text-neutral-900"
+          href={
+            search.get("next")
+              ? `/login?next=${encodeURIComponent(search.get("next") ?? "")}`
+              : "/login"
+          }
+        >
           Sign in
         </Link>
       </p>

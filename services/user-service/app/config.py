@@ -1,4 +1,5 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,6 +30,10 @@ class Settings(BaseSettings):
     internal_service_secret: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_SERVICE_SECRET"
     )
+    resume_storage_directory: Path = Field(
+        default=Path(".local/resumes"), validation_alias="RESUME_STORAGE_DIRECTORY"
+    )
+
     @model_validator(mode="after")
     def production_configuration(self) -> "Settings":
         if not is_production(self.environment):

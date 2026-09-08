@@ -35,7 +35,13 @@ def gateway() -> Iterator[tuple[TestClient, list[httpx.Request], FakeLimiter]]:
             if token not in user_ids:
                 return httpx.Response(401, json={"error": {"code": "invalid_access_token"}})
             return httpx.Response(
-                200, json={"id": str(user_ids[token]), "role": "candidate", "is_active": True}
+                200,
+                json={
+                    "id": str(user_ids[token]),
+                    "email": "candidate@example.in",
+                    "role": "candidate",
+                    "is_active": True,
+                },
             )
         return httpx.Response(
             200,
@@ -217,6 +223,7 @@ def test_valid_token_routes_and_replaces_spoofed_identity(
     }
     downstream = requests[-1]
     assert downstream.headers["X-Internal-Identity-Secret"] == "internal-test-secret"
+    assert downstream.headers["X-User-Email"] == "candidate@example.in"
 
 
 def test_unauthorized_role_is_forbidden(
@@ -238,6 +245,24 @@ def test_public_login_routes_without_jwt(
         "/v1/auth/login", json={"email": "candidate@example.in", "password": "test-password"}
     )
     assert response.status_code == 200 and response.json()["path"] == "/v1/auth/login"
+
+
+def test_public_discovery_routes_without_jwt_and_keeps_writes_private(
+    gateway: tuple[TestClient, list[httpx.Request], FakeLimiter],
+) -> None:
+    client, requests, limiter = gateway
+    for path, downstream in (
+        ("/v1/public/interviewers", "/v1/public/interviewers"),
+        (f"/v1/public/interviewers/{USER_ID}", f"/v1/public/interviewers/{USER_ID}"),
+        ("/v1/public/slots?starts_after=2030-01-01&ends_before=2030-02-01", "/v1/public/slots"),
+        (f"/v1/public/slots/{USER_ID}", f"/v1/public/slots/{USER_ID}"),
+    ):
+        assert client.get(path).status_code == 200
+        assert requests[-1].url.path == downstream
+        assert "X-User-ID" not in requests[-1].headers
+    assert all(call[0] == "client:testclient" for call in limiter.calls)
+    assert client.post(f"/v1/booking/slots/{USER_ID}/hold").status_code == 401
+    assert client.post("/v1/booking/bookings").status_code == 401
 
 
 def test_internal_routes_are_not_public(

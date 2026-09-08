@@ -1,14 +1,17 @@
 import secrets
+from functools import lru_cache
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, Header
+from pydantic import EmailStr, TypeAdapter, ValidationError
 from roundready_common.errors import ServiceError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.domain.identity import AuthenticatedRole, InternalIdentity
 from app.infrastructure.database import get_db_session
+from app.infrastructure.resume_storage import LocalResumeStorage, ResumeStorage
 
 DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
 AppSettings = Annotated[Settings, Depends(get_settings)]
@@ -18,6 +21,7 @@ async def get_internal_identity(
     settings: AppSettings,
     authenticated_user_id: Annotated[str | None, Header(alias="X-User-ID")] = None,
     role: Annotated[str | None, Header(alias="X-User-Role")] = None,
+    email: Annotated[str | None, Header(alias="X-User-Email")] = None,
     internal_secret: Annotated[str | None, Header(alias="X-Internal-Identity-Secret")] = None,
 ) -> InternalIdentity:
     expected_secret = settings.internal_identity_secret.get_secret_value()
@@ -32,10 +36,13 @@ async def get_internal_identity(
             status_code=401,
         )
     try:
+        trusted_email = TypeAdapter(EmailStr).validate_python(email)
         return InternalIdentity(
-            user_id=UUID(authenticated_user_id or ""), role=AuthenticatedRole(role or "")
+            user_id=UUID(authenticated_user_id or ""),
+            role=AuthenticatedRole(role or ""),
+            email=str(trusted_email).strip().lower(),
         )
-    except ValueError as exc:
+    except (ValueError, ValidationError) as exc:
         raise ServiceError(
             code="invalid_internal_identity",
             message="Authenticated internal identity is invalid",
@@ -66,6 +73,14 @@ async def require_admin(identity: AuthenticatedIdentity) -> InternalIdentity:
 
 CandidateIdentity = Annotated[InternalIdentity, Depends(require_candidate)]
 AdminIdentity = Annotated[InternalIdentity, Depends(require_admin)]
+
+
+@lru_cache
+def get_resume_storage() -> ResumeStorage:
+    return LocalResumeStorage(get_settings().resume_storage_directory)
+
+
+ResumeStorageDependency = Annotated[ResumeStorage, Depends(get_resume_storage)]
 
 
 async def require_internal_service(

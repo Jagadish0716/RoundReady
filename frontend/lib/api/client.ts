@@ -59,16 +59,18 @@ export async function apiRequest<T>(
     ...init
   } = options;
   const requestHeaders = new Headers(headers);
+  const formData = typeof FormData !== "undefined" && body instanceof FormData;
   requestHeaders.set("Accept", "application/json");
   requestHeaders.set("X-Correlation-ID", correlationId);
-  if (body !== undefined)
+  if (body !== undefined && !formData)
     requestHeaders.set("Content-Type", "application/json");
   if (accessToken) requestHeaders.set("Authorization", `Bearer ${accessToken}`);
 
   const response = await fetch(`${apiBaseUrl()}${path}`, {
     ...init,
     headers: requestHeaders,
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body:
+      body === undefined ? undefined : formData ? body : JSON.stringify(body),
   });
   const text = await response.text();
   let data: unknown = null;

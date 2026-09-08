@@ -19,6 +19,8 @@ class RouteTarget:
 
 
 ROUTES = (
+    RouteTarget("v1/public/interviewers", "interviewer_service_url", "/v1/public/interviewers"),
+    RouteTarget("v1/public/slots", "booking_service_url", "/v1/public/slots"),
     RouteTarget("v1/auth", "auth_service_url", "/v1/auth"),
     RouteTarget("v1/users", "user_service_url", "/v1"),
     RouteTarget("v1/interviewers", "interviewer_service_url", "/v1"),
@@ -33,6 +35,17 @@ PUBLIC_PATHS = {
     ("POST", "v1/auth/refresh"),
     ("POST", "v1/payments/webhooks/razorpay"),
 }
+
+
+def _is_public(method: str, path: str) -> bool:
+    if (method, path) in PUBLIC_PATHS:
+        return True
+    return method == "GET" and (
+        path == "v1/public/interviewers"
+        or path.startswith("v1/public/interviewers/")
+        or path == "v1/public/slots"
+        or path.startswith("v1/public/slots/")
+    )
 
 
 def _role_required(method: str, path: str) -> Role | None:
@@ -80,7 +93,7 @@ async def proxy(
             code="route_not_found", message="API route was not found", status_code=404
         )
     method = request.method.upper()
-    public = (method, path) in PUBLIC_PATHS
+    public = _is_public(method, path)
     identity: Identity | None = None
     if not public:
         authorization = request.headers.get("Authorization")
@@ -122,6 +135,7 @@ async def proxy(
             {
                 "X-User-ID": str(identity.user_id),
                 "X-User-Role": identity.role.value,
+                "X-User-Email": identity.email,
                 "X-Internal-Identity-Secret": settings.internal_identity_secret.get_secret_value(),
             }
         )
@@ -146,7 +160,7 @@ async def proxy(
             status_code=502,
         )
     response_headers: dict[str, str] = {}
-    for name in ("content-type", "www-authenticate"):
+    for name in ("content-type", "content-disposition", "www-authenticate"):
         if name in upstream.headers:
             response_headers[name] = upstream.headers[name]
     return Response(

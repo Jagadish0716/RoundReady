@@ -21,12 +21,13 @@ def postgres_url() -> Iterator[str]:
 
 
 @pytest.fixture(scope="session")
-def client(postgres_url: str) -> Iterator[TestClient]:
+def client(postgres_url: str, tmp_path_factory: pytest.TempPathFactory) -> Iterator[TestClient]:
     os.environ.update(
         {
             "USER_DATABASE_URL": postgres_url.replace("postgresql+psycopg", "postgresql+asyncpg"),
             "DATABASE_POOLING": "false",
             "INTERNAL_IDENTITY_SECRET": INTERNAL_TEST_SECRET,
+            "RESUME_STORAGE_DIRECTORY": str(tmp_path_factory.mktemp("resumes")),
         }
     )
     from app.config import get_settings
@@ -41,10 +42,15 @@ def client(postgres_url: str) -> Iterator[TestClient]:
         yield test_client
 
 
-def identity_headers(role: str = "candidate", user_id: UUID | None = None) -> dict[str, str]:
+def identity_headers(
+    role: str = "candidate",
+    user_id: UUID | None = None,
+    email: str = "candidate@example.in",
+) -> dict[str, str]:
     return {
         "X-User-ID": str(user_id or uuid4()),
         "X-User-Role": role,
+        "X-User-Email": email,
         "X-Internal-Identity-Secret": INTERNAL_TEST_SECRET,
     }
 
@@ -59,12 +65,10 @@ def profile_payload() -> dict[str, object]:
     return {
         "full_name": "Asha Rao",
         "phone": "+919876543210",
-        "email": "asha.rao@example.in",
         "city": "Bengaluru",
         "experience_years": "4.5",
         "current_role": "Software Engineer",
         "target_role": "Senior Backend Engineer",
         "preferred_language": "English",
         "linkedin_url": "https://www.linkedin.com/in/asha-rao",
-        "resume_url": "https://documents.example.in/resumes/asha.pdf",
     }

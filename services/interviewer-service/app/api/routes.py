@@ -8,6 +8,7 @@ from app.api.schemas import (
     EvidenceInput,
     ProfileResponse,
     ProfileUpsertRequest,
+    PublicInterviewerResponse,
     RejectionRequest,
     SkillReplaceRequest,
     SkillResponse,
@@ -28,6 +29,23 @@ from app.domain.models import VerificationStatus
 from fastapi import APIRouter, Query, Response, status
 
 router = APIRouter(prefix="/v1", tags=["interviewers"])
+
+
+@router.get("/public/interviewers", response_model=list[PublicInterviewerResponse])
+async def public_interviewers(session: DatabaseSession) -> list[PublicInterviewerResponse]:
+    return [
+        PublicInterviewerResponse.model_validate(item)
+        for item in await InterviewerService(session).public_interviewers()
+    ]
+
+
+@router.get("/public/interviewers/{interviewer_id}", response_model=PublicInterviewerResponse)
+async def public_interviewer(
+    interviewer_id: UUID, session: DatabaseSession
+) -> PublicInterviewerResponse:
+    return PublicInterviewerResponse.model_validate(
+        await InterviewerService(session).public_interviewer(interviewer_id)
+    )
 
 
 @router.get("/me/profile", response_model=ProfileResponse)

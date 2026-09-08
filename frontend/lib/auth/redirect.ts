@@ -14,7 +14,9 @@ export function redirectForRole(role: Role, requested: string | null): string {
   const home = roleHome(role);
   if (!requested || !requested.startsWith("/") || requested.startsWith("//"))
     return home;
-  return requested === home || requested.startsWith(`${home}/`)
+  return requested === home ||
+    requested.startsWith(`${home}/`) ||
+    requested.startsWith(`${home}?`)
     ? requested
     : home;
 }

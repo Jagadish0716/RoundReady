@@ -23,10 +23,11 @@ class ProfileService:
         return profile
 
     async def upsert_profile(
-        self, user_id: UUID, request: ProfileUpsertRequest
+        self, user_id: UUID, email: str, request: ProfileUpsertRequest
     ) -> CandidateProfile:
         values = request.model_dump(mode="json")
         values["user_id"] = user_id
+        values["email"] = email
         update_values = {key: value for key, value in values.items() if key != "user_id"}
         update_values["updated_at"] = utc_now()
         statement = (

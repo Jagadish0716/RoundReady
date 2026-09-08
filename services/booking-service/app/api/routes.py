@@ -16,6 +16,7 @@ from app.application.booking_service import BookingService
 from app.dependencies import (
     AdminIdentity,
     AppSettings,
+    AuthIdentity,
     CandidateIdentity,
     DatabaseSession,
     HoldStore,
@@ -29,6 +30,33 @@ router = APIRouter(prefix="/v1", tags=["booking"])
 
 def service(session: DatabaseSession, holds: HoldStore, settings: AppSettings) -> BookingService:
     return BookingService(session, holds, settings)
+
+
+@router.get("/public/slots", response_model=list[SlotResponse])
+async def public_slots(
+    starts_after: Annotated[datetime, Query()],
+    ends_before: Annotated[datetime, Query()],
+    session: DatabaseSession,
+    holds: HoldStore,
+    settings: AppSettings,
+    interviewer_id: Annotated[UUID | None, Query()] = None,
+) -> list[SlotResponse]:
+    slots = await service(session, holds, settings).available_slots(
+        starts_after, ends_before, interviewer_id
+    )
+    return [SlotResponse.model_validate(item) for item in slots]
+
+
+@router.get("/public/slots/{slot_id}", response_model=SlotResponse)
+async def public_slot(
+    slot_id: UUID,
+    session: DatabaseSession,
+    holds: HoldStore,
+    settings: AppSettings,
+) -> SlotResponse:
+    return SlotResponse.model_validate(
+        await service(session, holds, settings).available_slot(slot_id)
+    )
 
 
 @router.post("/internal/slots/generate", response_model=list[SlotResponse])
@@ -52,6 +80,7 @@ async def slots(
     session: DatabaseSession,
     holds: HoldStore,
     settings: AppSettings,
+    _identity: AuthIdentity,
 ) -> list[SlotResponse]:
     return [
         SlotResponse.model_validate(x)

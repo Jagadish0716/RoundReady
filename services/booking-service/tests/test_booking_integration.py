@@ -306,3 +306,28 @@ def test_persistence_after_restart(client: TestClient) -> None:
             json={"slot_id": slot["id"], "hold_token": "x" * 32},
         )
     assert response.status_code == 201 and response.json()["id"] == booking["id"]
+
+
+def test_anonymous_public_slot_read_is_allowed_but_booking_writes_are_protected(
+    client: TestClient,
+) -> None:
+    interviewer = uuid4()
+    slot = generate(client, headers("admin"), interviewer, datetime(2030, 1, 8, 9, tzinfo=UTC))
+    params = {
+        "starts_after": "2030-01-01T00:00:00Z",
+        "ends_before": "2030-02-01T00:00:00Z",
+        "interviewer_id": str(interviewer),
+    }
+    public = client.get("/v1/public/slots", params=params)
+    detail = client.get(f"/v1/public/slots/{slot['id']}")
+    assert public.status_code == 200
+    assert slot["id"] in {item["id"] for item in public.json()}
+    assert detail.status_code == 200 and detail.json()["id"] == slot["id"]
+    assert client.get("/v1/slots", params=params).status_code == 401
+    assert client.post(f"/v1/slots/{slot['id']}/hold").status_code == 401
+    response = client.post(
+        "/v1/bookings",
+        headers={"Idempotency-Key": "anonymous-booking"},
+        json={"slot_id": slot["id"], "hold_token": "x" * 32},
+    )
+    assert response.status_code == 401

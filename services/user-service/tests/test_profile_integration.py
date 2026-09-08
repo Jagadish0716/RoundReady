@@ -1,6 +1,11 @@
+import io
+import zipfile
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import psycopg
+from alembic import command
+from alembic.config import Config
 from conftest import identity_headers
 from fastapi.testclient import TestClient
 
@@ -38,6 +43,7 @@ def test_candidate_creates_gets_and_updates_own_profile(
     assert absent.status_code == 404
     assert created.status_code == 200
     assert created.json()["user_id"] == candidate_headers["X-User-ID"]
+    assert created.json()["email"] == candidate_headers["X-User-Email"]
     assert fetched.json() == created.json()
     assert updated.json()["city"] == "Hyderabad"
     assert updated.json()["experience_years"] == "5.0"
@@ -95,7 +101,7 @@ def test_profile_validation(client: TestClient, candidate_headers: dict[str, str
         json={
             "full_name": " ",
             "phone": "9876543210",
-            "experience_years": 61,
+            "experience_years": 21,
             "linkedin_url": "https://example.com/not-linkedin",
         },
     )
@@ -103,24 +109,106 @@ def test_profile_validation(client: TestClient, candidate_headers: dict[str, str
     assert response.json()["error"]["code"] == "validation_error"
 
 
-def test_resume_metadata_foundation(
+def test_email_cannot_be_overridden(
     client: TestClient, candidate_headers: dict[str, str], profile_payload: dict[str, object]
 ) -> None:
-    resume = {
-        "storage_url": "https://documents.example.in/resumes/candidate.pdf",
-        "file_name": "candidate-resume.pdf",
-        "content_type": "application/pdf",
-        "size_bytes": 204800,
-        "checksum_sha256": "a" * 64,
-    }
-    before_profile = client.put("/v1/me/resume", headers=candidate_headers, json=resume)
-    assert before_profile.status_code == 409
+    response = client.put(
+        "/v1/me/profile",
+        headers=candidate_headers,
+        json={**profile_payload, "email": "attacker@example.com"},
+    )
+    assert response.status_code == 422
+
+
+def test_profile_boundaries_and_phone_normalization(
+    client: TestClient, profile_payload: dict[str, object]
+) -> None:
+    for years in (0, 20):
+        headers = identity_headers()
+        response = client.put(
+            "/v1/me/profile",
+            headers=headers,
+            json={**profile_payload, "experience_years": years, "phone": "+91 98765 43210"},
+        )
+        assert response.status_code == 200
+        assert response.json()["phone"] == "+919876543210"
+    for years in (-1, 21):
+        assert (
+            client.put(
+                "/v1/me/profile",
+                headers=identity_headers(),
+                json={**profile_payload, "experience_years": years},
+            ).status_code
+            == 422
+        )
+    assert (
+        client.put(
+            "/v1/me/profile",
+            headers=identity_headers(),
+            json={**profile_payload, "preferred_language": "Klingon"},
+        ).status_code
+        == 422
+    )
+
+
+def _docx() -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", "<document/>")
+    return output.getvalue()
+
+
+def test_private_resume_upload_and_download(
+    client: TestClient, candidate_headers: dict[str, str], profile_payload: dict[str, object]
+) -> None:
+    files = {"resume": ("../../candidate.pdf", b"%PDF-1.4\nbody", "application/pdf")}
+    before_profile = client.post("/v1/me/resume", headers=candidate_headers, files=files)
+    assert before_profile.status_code == 404
     client.put("/v1/me/profile", headers=candidate_headers, json=profile_payload)
-    stored = client.put("/v1/me/resume", headers=candidate_headers, json=resume)
+    stored = client.post("/v1/me/resume", headers=candidate_headers, files=files)
     fetched = client.get("/v1/me/resume", headers=candidate_headers)
     assert stored.status_code == 200
-    assert stored.json()["checksum_sha256"] == "a" * 64
+    assert stored.json()["file_name"] == "candidate.pdf"
+    assert "storage_url" not in stored.json() and "checksum_sha256" not in stored.json()
     assert fetched.json() == stored.json()
+    downloaded = client.get("/v1/me/resume/content", headers=candidate_headers)
+    assert downloaded.status_code == 200 and downloaded.content == b"%PDF-1.4\nbody"
+    assert client.get("/v1/me/resume", headers=identity_headers()).status_code == 404
+
+
+def test_resume_type_size_and_doc_formats(
+    client: TestClient, profile_payload: dict[str, object]
+) -> None:
+    headers = identity_headers()
+    client.put("/v1/me/profile", headers=headers, json=profile_payload)
+    invalid = client.post(
+        "/v1/me/resume",
+        headers=headers,
+        files={"resume": ("resume.pdf", b"not pdf", "application/pdf")},
+    )
+    oversized = client.post(
+        "/v1/me/resume",
+        headers=headers,
+        files={"resume": ("resume.pdf", b"%PDF-" + b"x" * (5 * 1024 * 1024), "application/pdf")},
+    )
+    assert invalid.status_code == 422
+    assert oversized.status_code == 413
+    formats = [
+        ("resume.doc", bytes.fromhex("D0CF11E0A1B11AE1") + b"doc", "application/msword"),
+        (
+            "resume.docx",
+            _docx(),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ),
+    ]
+    for name, content, mime in formats:
+        assert (
+            client.post(
+                "/v1/me/resume", headers=headers, files={"resume": (name, content, mime)}
+            ).status_code
+            == 200
+        )
 
 
 def test_schema_contains_only_user_service_data(postgres_url: str) -> None:
@@ -145,3 +233,9 @@ def test_profile_persists_across_application_restart(
         response = restarted_client.get("/v1/me/profile", headers=headers)
     assert response.status_code == 200
     assert response.json()["full_name"] == profile_payload["full_name"]
+
+
+def test_constraint_migration_round_trip(client: TestClient) -> None:
+    alembic_config = Config(str(Path(__file__).parents[1] / "alembic.ini"))
+    command.downgrade(alembic_config, "0001_candidate_profiles")
+    command.upgrade(alembic_config, "head")

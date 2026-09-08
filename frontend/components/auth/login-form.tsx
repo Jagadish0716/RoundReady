@@ -25,6 +25,10 @@ export function LoginForm() {
   const [errors, setErrors] = useState<CredentialsErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const requested = search.get("next");
+  const registerHref = requested
+    ? `/register?next=${encodeURIComponent(requested)}`
+    : "/register";
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -48,7 +52,9 @@ export function LoginForm() {
       <div>
         <h1 className="text-2xl font-semibold">Sign in</h1>
         <p className="mt-1 text-sm text-neutral-600">
-          Continue to your RoundReady workspace.
+          {requested
+            ? "Sign in or create an account to book this interview."
+            : "Continue to your RoundReady workspace."}
         </p>
       </div>
       {search.get("registered") === "1" ? (
@@ -96,7 +102,7 @@ export function LoginForm() {
       </Button>
       <p className="text-center text-sm text-neutral-600">
         New to RoundReady?{" "}
-        <Link className="font-medium text-neutral-900" href="/register">
+        <Link className="font-medium text-neutral-900" href={registerHref}>
           Create an account
         </Link>
       </p>

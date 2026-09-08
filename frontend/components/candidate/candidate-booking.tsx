@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -51,7 +51,13 @@ function messageFor(error: unknown): string {
   return error.message;
 }
 
-export function CandidateBooking() {
+export function CandidateBooking({
+  intentSlotId,
+  intentInterviewerId,
+}: {
+  intentSlotId?: string;
+  intentInterviewerId?: string;
+}) {
   const { request } = useAuth();
   const [from, setFrom] = useState(() => dateValue(0));
   const [to, setTo] = useState(() => dateValue(30));
@@ -65,12 +71,38 @@ export function CandidateBooking() {
   const [notice, setNotice] = useState<string | null>(null);
   const bookingKey = useRef(crypto.randomUUID());
   const paymentKey = useRef(crypto.randomUUID());
+  const intentHandled = useRef(false);
   const development = developmentPaymentsEnabled();
 
   const authoritativePrice = useMemo(() => {
     const source = payment ?? booking;
     return source ? formatMoney(source.amount_paise, source.currency) : "₹200";
   }, [booking, payment]);
+
+  useEffect(() => {
+    if (!intentSlotId || !intentInterviewerId || intentHandled.current) return;
+    intentHandled.current = true;
+    void Promise.resolve().then(async () => {
+      setBusy("revalidate");
+      setError(null);
+      try {
+        const slot = await api.getPublicSlot(request, intentSlotId);
+        if (slot.interviewer_id !== intentInterviewerId)
+          throw new Error("invalid booking context");
+        const held = await api.holdSlot(request, slot.id);
+        setSelected(slot);
+        setHold(held);
+        setSlots([slot]);
+        setNotice("Slot availability was revalidated and is now held for you.");
+      } catch {
+        setError(
+          "This slot is no longer available. Choose another verified interviewer or slot.",
+        );
+      } finally {
+        setBusy(null);
+      }
+    });
+  }, [intentInterviewerId, intentSlotId, request]);
 
   async function search(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();

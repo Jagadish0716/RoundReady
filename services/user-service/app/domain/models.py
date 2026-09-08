@@ -18,8 +18,13 @@ class CandidateProfile(Base):
     __tablename__ = "candidate_profiles"
     __table_args__ = (
         CheckConstraint(
-            "experience_years >= 0 AND experience_years <= 60",
+            "experience_years >= 0 AND experience_years <= 20",
             name="ck_candidate_profiles_experience_years",
+        ),
+        CheckConstraint(
+            "preferred_language IN ('English', 'Hindi', 'Kannada', 'Tamil', 'Telugu', "
+            "'Malayalam', 'Marathi', 'Bengali')",
+            name="ck_candidate_profiles_preferred_language",
         ),
         CheckConstraint(
             "phone IS NULL OR phone ~ '^\\+[1-9][0-9]{7,14}$'",

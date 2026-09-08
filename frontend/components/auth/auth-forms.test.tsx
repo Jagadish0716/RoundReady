@@ -82,6 +82,16 @@ describe("authentication forms", () => {
     );
   });
 
+  it("returns a candidate to preserved booking context", async () => {
+    mocks.requested = "/candidate?slot=slot-1&interviewer=interviewer-1";
+    mocks.login.mockResolvedValue({ role: "candidate" });
+    render(<LoginForm />);
+    completeLogin();
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith(mocks.requested),
+    );
+  });
+
   it("shows invalid credentials", async () => {
     mocks.login.mockRejectedValue(
       new ApiClientError(

@@ -354,6 +354,40 @@ class InterviewerService:
             "screening_passed": VerificationCheckType.SCREENING_CALL_PASSED.value in passed,
         }
 
+    async def public_interviewers(self) -> list[dict[str, object]]:
+        profiles = list(
+            (
+                await self._session.scalars(
+                    select(InterviewerProfile)
+                    .where(InterviewerProfile.verification_status == VerificationStatus.VERIFIED)
+                    .order_by(InterviewerProfile.updated_at.desc())
+                )
+            ).all()
+        )
+        return [await self.public_interviewer(profile.user_id) for profile in profiles]
+
+    async def public_interviewer(self, user_id: UUID) -> dict[str, object]:
+        profile = await self.get_profile(user_id)
+        if profile.verification_status is not VerificationStatus.VERIFIED:
+            raise ServiceError(
+                code="interviewer_not_found",
+                message="Interviewer was not found",
+                status_code=404,
+            )
+        trust = await self.candidate_trust(user_id)
+        return {
+            "interviewer_id": user_id,
+            "headline": profile.headline,
+            "job_title": profile.job_title,
+            "experience_years": profile.experience_years,
+            "bio": profile.bio,
+            "skills": await self.list_skills(user_id),
+            "interview_languages": ["English"],
+            **trust,
+            "price_paise": 20000,
+            "currency": "INR",
+        }
+
     async def _verification(self, user_id: UUID) -> InterviewerVerification:
         row = await self._session.scalar(
             select(InterviewerVerification)

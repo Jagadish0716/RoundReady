@@ -14,6 +14,75 @@ def create_profile(
     return cast(dict[str, object], response.json())
 
 
+def approve_interviewer(
+    client: TestClient, interviewer: dict[str, str], admin: dict[str, str]
+) -> None:
+    client.post("/v1/me/verification/submit", headers=interviewer)
+    response = client.post(
+        f"/v1/admin/interviewers/{interviewer['X-User-ID']}/verification/review",
+        headers=admin,
+        json={
+            "action": "verify",
+            "checks": {"professional_evidence_reviewed": True},
+            "screening": {"screening_status": "passed", "overall_result": "passed"},
+        },
+    )
+    assert response.status_code == 200
+
+
+def test_anonymous_public_discovery_returns_only_verified_safe_data(
+    client: TestClient, profile: dict[str, object]
+) -> None:
+    admin = headers("admin")
+    verified, pending, under_review, rejected, suspended = (headers() for _ in range(5))
+    for identity in (verified, pending, under_review, rejected, suspended):
+        create_profile(client, identity, profile)
+    approve_interviewer(client, verified, admin)
+    client.post("/v1/me/verification/submit", headers=under_review)
+    client.post("/v1/me/verification/submit", headers=rejected)
+    client.post(
+        f"/v1/admin/interviewers/{rejected['X-User-ID']}/reject",
+        headers=admin,
+        json={"reason": "Not approved"},
+    )
+    approve_interviewer(client, suspended, admin)
+    client.post(
+        f"/v1/admin/interviewers/{suspended['X-User-ID']}/suspend",
+        headers=admin,
+        json={"reason": "Suspended"},
+    )
+    discovered = client.get("/v1/public/interviewers")
+    assert discovered.status_code == 200
+    ids = {item["interviewer_id"] for item in discovered.json()}
+    assert verified["X-User-ID"] in ids
+    assert not ids.intersection(
+        {
+            pending["X-User-ID"],
+            under_review["X-User-ID"],
+            rejected["X-User-ID"],
+            suspended["X-User-ID"],
+        }
+    )
+    public = client.get(f"/v1/public/interviewers/{verified['X-User-ID']}")
+    assert public.status_code == 200
+    assert public.json()["price_paise"] == 20000
+    assert public.json()["roundready_verified"] is True
+    assert public.json()["interview_languages"] == ["English"]
+    assert not {
+        "company",
+        "linkedin_url",
+        "github_url",
+        "verification_reason",
+        "reviewed_by",
+        "email",
+        "phone",
+        "evidence",
+        "reviewer_notes",
+    }.intersection(public.json())
+    assert client.get(f"/v1/public/interviewers/{pending['X-User-ID']}").status_code == 404
+    assert client.get("/v1/me/verification").status_code == 401
+
+
 def test_identity_and_role_enforcement(client: TestClient, profile: dict[str, object]) -> None:
     assert client.get("/v1/me/profile").status_code == 401
     assert (

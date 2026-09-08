@@ -62,6 +62,7 @@ const payment = {
 };
 
 function defaultApi(path: string, options?: { method?: string }): unknown {
+  if (path === `/v1/public/slots/${slot.id}`) return slot;
   if (path.startsWith("/v1/booking/slots?")) return [slot];
   if (path.endsWith("/hold")) return hold;
   if (path === "/v1/booking/bookings" && options?.method === "POST")
@@ -117,6 +118,50 @@ describe("CandidateBooking", () => {
       "/v1/booking/slots/slot-1/hold",
       { method: "POST" },
     );
+  });
+
+  it("revalidates preserved intent before creating an authenticated hold", async () => {
+    render(
+      <CandidateBooking
+        intentSlotId={slot.id}
+        intentInterviewerId={slot.interviewer_id}
+      />,
+    );
+    expect(
+      await screen.findByText(/revalidated and is now held/),
+    ).toBeInTheDocument();
+    expect(mocks.request).toHaveBeenNthCalledWith(
+      1,
+      `/v1/public/slots/${slot.id}`,
+    );
+    expect(mocks.request).toHaveBeenNthCalledWith(
+      2,
+      `/v1/booking/slots/${slot.id}/hold`,
+      { method: "POST" },
+    );
+  });
+
+  it("does not hold when preserved slot intent is unavailable", async () => {
+    mocks.request.mockRejectedValue(
+      new ApiClientError(
+        "Unavailable",
+        404,
+        "not_found",
+        "slot_unavailable",
+        null,
+        null,
+      ),
+    );
+    render(
+      <CandidateBooking
+        intentSlotId={slot.id}
+        intentInterviewerId={slot.interviewer_id}
+      />,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "no longer available",
+    );
+    expect(mocks.request).toHaveBeenCalledTimes(1);
   });
 
   it("shows a slot conflict", async () => {

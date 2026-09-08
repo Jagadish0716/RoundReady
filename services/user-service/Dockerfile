@@ -21,7 +21,9 @@ COPY services/user-service/app ./app
 COPY services/user-service/alembic ./alembic
 COPY services/user-service/alembic.ini ./alembic.ini
 
-RUN addgroup --system app && adduser --system --ingroup app app
+RUN addgroup --system app && adduser --system --ingroup app app \
+    && mkdir -p /var/lib/roundready/resumes \
+    && chown -R app:app /var/lib/roundready
 USER app
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

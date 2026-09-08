@@ -127,6 +127,9 @@ services:
       USER_DATABASE_URL: postgresql+asyncpg://${USER_DB_USER:?}:${USER_DB_PASSWORD:?}@postgres:5432/${USER_DB_NAME:-roundready_user}
       INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?Set INTERNAL_IDENTITY_SECRET in .env}
       INTERNAL_SERVICE_SECRET: ${INTERNAL_SERVICE_SECRET:?Set INTERNAL_SERVICE_SECRET in .env}
+      RESUME_STORAGE_DIRECTORY: /var/lib/roundready/resumes
+    volumes:
+      - roundready-resume-data:/var/lib/roundready/resumes
     depends_on: {postgres: {condition: service_healthy}}
     healthcheck: *api-health
     networks: [roundready-local]
@@ -332,3 +335,5 @@ volumes:
     name: roundready-redis-data
   roundready-rabbitmq-data:
     name: roundready-rabbitmq-data
+  roundready-resume-data:
+    name: roundready-resume-data
