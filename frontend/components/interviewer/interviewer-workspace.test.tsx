@@ -127,6 +127,17 @@ describe("InterviewerWorkspace", () => {
     expect(screen.getByLabelText("Headline")).toHaveValue("Keep this value");
   });
 
+  it.each(["61", "999999", "-1", "1e5", "1.55"])(
+    "rejects invalid experience input %s without displaying it",
+    async (attempted) => {
+      render(<InterviewerWorkspace section="profile" />);
+      const input = await screen.findByLabelText("Experience (years)");
+      expect(input).toHaveValue("10.0");
+      fireEvent.change(input, { target: { value: attempted } });
+      expect(input).toHaveValue("10.0");
+    },
+  );
+
   it("creates and saves a weekly availability rule", async () => {
     const savedRule = {
       id: "rule-1",

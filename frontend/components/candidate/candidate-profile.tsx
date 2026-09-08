@@ -28,7 +28,6 @@ import {
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   CandidateProfileHelp,
-  CandidateSidebar,
   ProfileHeader,
 } from "@/components/candidate/candidate-profile-chrome";
 import { Button } from "@/components/ui/button";
@@ -239,7 +238,10 @@ export function CandidateProfileForm() {
     let phone: string | null = null;
     if (mobile) {
       const parsed = parsePhoneNumberFromString(mobile, country);
-      if (!parsed?.isValid()) validation.phone = "Enter a valid mobile number.";
+      if (country === "IN" && !/^[6-9]\d{9}$/.test(mobile))
+        validation.phone = "Enter a valid 10-digit Indian mobile number.";
+      else if (!parsed?.isValid())
+        validation.phone = "Enter a valid mobile number.";
       else phone = parsed.number;
     }
     if (profile.linkedin_url) {
@@ -334,14 +336,9 @@ export function CandidateProfileForm() {
   return (
     <section
       id="candidate-profile"
-      className="grid min-w-0 gap-6 lg:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[220px_minmax(0,1fr)_280px]"
-      aria-label="Candidate profile dashboard"
+      className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_280px]"
+      aria-label="Candidate profile"
     >
-      <CandidateSidebar
-        displayName={
-          profile.full_name || accountEmail.split("@")[0] || "Candidate"
-        }
-      />
       <div className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7">
         <ProfileHeader completion={completion} />
         <div className="mt-6 space-y-4">
@@ -383,7 +380,7 @@ export function CandidateProfileForm() {
               <input
                 aria-label="Country code"
                 list="country-codes"
-                className="h-11 w-36 shrink-0 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600 sm:w-40"
+                className="h-11 w-[42%] max-w-[200px] min-w-0 shrink-0 rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-blue-600 sm:w-[200px]"
                 value={countryQuery}
                 disabled={saving}
                 onChange={(event) => {
@@ -393,7 +390,13 @@ export function CandidateProfileForm() {
                       `${item.name} (+${item.callingCode})` ===
                       event.target.value,
                   );
-                  if (match) setCountry(match.code);
+                  if (match) {
+                    setCountry(match.code);
+                    setErrors((current) => ({
+                      ...current,
+                      phone: undefined,
+                    }));
+                  }
                 }}
               />
               <datalist id="country-codes">
@@ -412,18 +415,30 @@ export function CandidateProfileForm() {
                 aria-label="Mobile number"
                 inputMode="numeric"
                 pattern="[0-9]*"
+                maxLength={country === "IN" ? 10 : 15}
                 value={mobile}
                 disabled={saving}
                 aria-invalid={Boolean(errors.phone)}
                 aria-describedby={errors.phone ? "phone-error" : "phone-help"}
                 onChange={(e) => {
-                  setMobile(e.target.value.replace(/\D/g, ""));
+                  const next = e.target.value;
+                  if (!/^\d*$/.test(next)) return;
+                  if (
+                    country === "IN" &&
+                    (next.length > 10 ||
+                      (next.length > 0 && !/^[6-9]/.test(next)))
+                  )
+                    return;
+                  if (country !== "IN" && next.length > 15) return;
+                  setMobile(next);
                   setErrors((current) => ({ ...current, phone: undefined }));
                 }}
               />
             </div>
             <p id="phone-help" className="mt-1 text-sm text-neutral-500">
-              Select your country code and enter your mobile number.
+              {country === "IN"
+                ? "Enter a valid 10-digit Indian mobile number."
+                : "Select your country code and enter your mobile number."}
             </p>
             {errors.phone && (
               <p id="phone-error" className="mt-1 text-sm text-red-700">

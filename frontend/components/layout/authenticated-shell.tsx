@@ -12,7 +12,8 @@ export function AuthenticatedShell({
   children: ReactNode;
 }) {
   const candidate = title.startsWith("Candidate");
-  if (!candidate)
+  const interviewer = title.startsWith("Interviewer");
+  if (!candidate && !interviewer)
     return (
       <div className="mx-auto min-h-screen max-w-6xl px-6 py-8">
         <header className="mb-10 flex items-center justify-between border-b pb-4">
@@ -44,13 +45,21 @@ export function AuthenticatedShell({
           </Link>
           <nav
             className="hidden items-center gap-7 text-sm font-medium text-slate-700 md:flex"
-            aria-label="Candidate shortcuts"
+            aria-label={`${candidate ? "Candidate" : "Interviewer"} shortcuts`}
           >
-            <Link href="/#interviewers">Browse Interviewers</Link>
+            {candidate ? (
+              <Link href="/candidate/interviews">Browse Interviewers</Link>
+            ) : (
+              <span>Interviewer workspace</span>
+            )}
           </nav>
           <div className="flex items-center gap-4">
             <Link
-              href="/candidate#notifications"
+              href={
+                candidate
+                  ? "/candidate/notifications"
+                  : "/interviewer/notifications"
+              }
               aria-label="Notifications"
               className="relative rounded-full p-2 text-slate-600 hover:bg-slate-100 focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:outline-none"
             >

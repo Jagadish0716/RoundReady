@@ -30,6 +30,12 @@ def approve_interviewer(
     assert response.status_code == 200
 
 
+def test_empty_public_interviewer_collection_returns_ok(client: TestClient) -> None:
+    response = client.get("/v1/public/interviewers")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 def test_anonymous_public_discovery_returns_only_verified_safe_data(
     client: TestClient, profile: dict[str, object]
 ) -> None:

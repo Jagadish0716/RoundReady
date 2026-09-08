@@ -54,6 +54,10 @@ class ProfileUpsertRequest(BaseModel):
             raise ValueError("phone must be a valid international number") from exc
         if not phonenumbers.is_valid_number(parsed):
             raise ValueError("phone must be a valid E.164 number")
+        if parsed.country_code == 91:
+            national_number = str(parsed.national_number)
+            if len(national_number) != 10 or national_number[0] not in "6789":
+                raise ValueError("phone must be a valid Indian mobile number")
         return phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
 
     @field_validator("linkedin_url")

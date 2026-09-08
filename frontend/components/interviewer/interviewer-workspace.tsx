@@ -66,7 +66,20 @@ function errorMessage(error: unknown): string {
   return error.message;
 }
 
-export function InterviewerWorkspace() {
+export type InterviewerWorkspaceSection =
+  "all" | "profile" | "skills" | "availability" | "blockouts";
+
+function validExperience(value: string): boolean {
+  return (
+    value === "" || (/^\d{1,2}(?:\.\d?)?$/.test(value) && Number(value) <= 60)
+  );
+}
+
+export function InterviewerWorkspace({
+  section = "all",
+}: {
+  section?: InterviewerWorkspaceSection;
+}) {
   const { request } = useAuth();
   const [profile, setProfile] = useState<InterviewerProfileInput>(emptyProfile);
   const [savedProfile, setSavedProfile] = useState<InterviewerProfile | null>(
@@ -119,7 +132,7 @@ export function InterviewerWorkspace() {
     setNotice(null);
     if (!profile.headline.trim()) return setError("Headline is required.");
     const years = Number(profile.experience_years);
-    if (!Number.isFinite(years) || years < 0 || years > 60)
+    if (!validExperience(profile.experience_years) || !Number.isFinite(years))
       return setError("Experience must be between 0 and 60 years.");
     setSaving("profile");
     try {
@@ -215,9 +228,23 @@ export function InterviewerWorkspace() {
   return (
     <div className="max-w-4xl space-y-8">
       <header>
-        <h1 className="text-2xl font-semibold">Interviewer profile</h1>
+        <h1 className="text-2xl font-semibold text-slate-950">
+          {section === "skills"
+            ? "Skills and domains"
+            : section === "availability"
+              ? "Weekly availability"
+              : section === "blockouts"
+                ? "Blockouts"
+                : "Professional profile"}
+        </h1>
         <p className="mt-1 text-sm text-neutral-600">
-          Manage your professional details and interview availability.
+          {section === "availability"
+            ? "Set the recurring times when you are available for interviews."
+            : section === "blockouts"
+              ? "Add time off when you are temporarily unavailable."
+              : section === "skills"
+                ? "Show candidates the domains, topics, and skills you can interview on."
+                : "Tell candidates about your professional background and experience."}
         </p>
       </header>
       {error ? (
@@ -236,360 +263,391 @@ export function InterviewerWorkspace() {
           {notice}
         </p>
       ) : null}
-      {savedProfile ? (
-        <VerificationStatusCard
-          status={savedProfile.verification_status}
-          reason={savedProfile.verification_reason}
-        />
-      ) : (
-        <p className="rounded-md border border-dashed p-4 text-sm">
-          Create your professional profile to begin verification.
-        </p>
-      )}
+      {(section === "all" || section === "profile") &&
+        (savedProfile ? (
+          <VerificationStatusCard
+            status={savedProfile.verification_status}
+            reason={savedProfile.verification_reason}
+          />
+        ) : (
+          <p className="rounded-md border border-dashed p-4 text-sm">
+            Create your professional profile to begin verification.
+          </p>
+        ))}
 
-      <form
-        className="grid gap-4 rounded-lg border bg-white p-5 sm:grid-cols-2"
-        onSubmit={saveProfile}
-        noValidate
-      >
-        <h2 className="text-lg font-semibold sm:col-span-2">
-          Professional details
-        </h2>
-        {(
-          [
-            ["headline", "Headline", "text"],
-            ["company", "Company", "text"],
-            ["job_title", "Job title", "text"],
-            ["experience_years", "Experience (years)", "number"],
-            ["linkedin_url", "LinkedIn URL", "url"],
-            ["github_url", "GitHub URL", "url"],
-          ] as const
-        ).map(([field, label, type]) => (
-          <div key={field}>
-            <Label htmlFor={field}>{label}</Label>
-            <Input
-              className="mt-2"
-              id={field}
-              type={type}
-              step={type === "number" ? "0.1" : undefined}
-              min={type === "number" ? "0" : undefined}
-              max={type === "number" ? "60" : undefined}
-              value={profile[field] ?? ""}
+      {(section === "all" || section === "profile") && (
+        <form
+          className="grid gap-4 rounded-lg border bg-white p-5 sm:grid-cols-2"
+          onSubmit={saveProfile}
+          noValidate
+        >
+          <h2 className="text-lg font-semibold sm:col-span-2">
+            Professional details
+          </h2>
+          {(
+            [
+              [
+                "headline",
+                "Headline",
+                "text",
+                "e.g. DevOps Engineer | Cloud Architect",
+              ],
+              ["company", "Company", "text", "e.g. Amazon"],
+              ["job_title", "Job title", "text", "e.g. Senior DevOps Engineer"],
+              ["experience_years", "Experience (years)", "text", "0"],
+              [
+                "linkedin_url",
+                "LinkedIn URL",
+                "url",
+                "https://www.linkedin.com/in/your-profile",
+              ],
+              [
+                "github_url",
+                "GitHub URL",
+                "url",
+                "https://github.com/your-username",
+              ],
+            ] as const
+          ).map(([field, label, type, placeholder]) => (
+            <div key={field}>
+              <Label htmlFor={field}>{label}</Label>
+              <Input
+                className="mt-2"
+                id={field}
+                type={type}
+                inputMode={field === "experience_years" ? "decimal" : undefined}
+                placeholder={placeholder}
+                value={profile[field] ?? ""}
+                disabled={saving === "profile"}
+                onChange={(event) => {
+                  if (
+                    field === "experience_years" &&
+                    !validExperience(event.target.value)
+                  )
+                    return;
+                  setProfile((current) => ({
+                    ...current,
+                    [field]:
+                      field === "headline" || field === "experience_years"
+                        ? event.target.value
+                        : nullable(event.target.value),
+                  }));
+                }}
+              />
+            </div>
+          ))}
+          <div className="sm:col-span-2">
+            <Label htmlFor="bio">Bio</Label>
+            <textarea
+              id="bio"
+              className="mt-2 min-h-28 w-full rounded-md border border-neutral-300 p-3 text-sm"
+              maxLength={4000}
+              placeholder="Tell candidates about your experience, expertise and what makes you a great interviewer..."
+              value={profile.bio ?? ""}
               disabled={saving === "profile"}
               onChange={(event) =>
                 setProfile((current) => ({
                   ...current,
-                  [field]:
-                    field === "headline" || field === "experience_years"
-                      ? event.target.value
-                      : nullable(event.target.value),
+                  bio: nullable(event.target.value),
                 }))
               }
             />
           </div>
-        ))}
-        <div className="sm:col-span-2">
-          <Label htmlFor="bio">Bio</Label>
-          <textarea
-            id="bio"
-            className="mt-2 min-h-28 w-full rounded-md border border-neutral-300 p-3 text-sm"
-            maxLength={4000}
-            value={profile.bio ?? ""}
-            disabled={saving === "profile"}
-            onChange={(event) =>
-              setProfile((current) => ({
-                ...current,
-                bio: nullable(event.target.value),
-              }))
-            }
-          />
-        </div>
-        <div className="sm:col-span-2">
-          <Button type="submit" disabled={saving !== null}>
-            {saving === "profile" ? "Saving…" : "Save profile"}
-          </Button>
-        </div>
-      </form>
-
-      <section className="space-y-4 rounded-lg border bg-white p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Skills and domains</h2>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setSkills((items) => [...items, { ...emptySkill }])}
-          >
-            Add skill
-          </Button>
-        </div>
-        {skills.length === 0 ? (
-          <p className="text-sm text-neutral-600">No skills added.</p>
-        ) : (
-          skills.map((skill, index) => (
-            <div
-              className="grid gap-2 rounded-md border p-3 sm:grid-cols-5"
-              key={index}
-            >
-              <select
-                aria-label={`Domain ${index + 1}`}
-                className="h-10 rounded-md border px-2 text-sm"
-                value={skill.domain}
-                onChange={(event) =>
-                  setSkills((items) =>
-                    items.map((item, i) =>
-                      i === index
-                        ? {
-                            ...item,
-                            domain: event.target
-                              .value as InterviewerSkillInput["domain"],
-                          }
-                        : item,
-                    ),
-                  )
-                }
-              >
-                {interviewerDomains.map((domain) => (
-                  <option key={domain}>{domain}</option>
-                ))}
-              </select>
-              <Input
-                aria-label={`Topic ${index + 1}`}
-                placeholder="Topic"
-                value={skill.topic}
-                onChange={(event) =>
-                  setSkills((items) =>
-                    items.map((item, i) =>
-                      i === index
-                        ? { ...item, topic: event.target.value }
-                        : item,
-                    ),
-                  )
-                }
-              />
-              <Input
-                aria-label={`Skill ${index + 1}`}
-                placeholder="Skill"
-                value={skill.skill_name}
-                onChange={(event) =>
-                  setSkills((items) =>
-                    items.map((item, i) =>
-                      i === index
-                        ? { ...item, skill_name: event.target.value }
-                        : item,
-                    ),
-                  )
-                }
-              />
-              <Input
-                aria-label={`Skill experience ${index + 1}`}
-                type="number"
-                min="0"
-                max="60"
-                step="0.1"
-                value={skill.experience_years}
-                onChange={(event) =>
-                  setSkills((items) =>
-                    items.map((item, i) =>
-                      i === index
-                        ? { ...item, experience_years: event.target.value }
-                        : item,
-                    ),
-                  )
-                }
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  setSkills((items) => items.filter((_, i) => i !== index))
-                }
-              >
-                Remove
-              </Button>
-            </div>
-          ))
-        )}
-        <Button
-          type="button"
-          disabled={saving !== null}
-          onClick={() => void saveSkills()}
-        >
-          {saving === "skills" ? "Saving…" : "Save skills"}
-        </Button>
-      </section>
-
-      <section className="space-y-4 rounded-lg border bg-white p-5">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Weekly availability</h2>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => setRules((items) => [...items, { ...emptyRule }])}
-          >
-            Add time
-          </Button>
-        </div>
-        {rules.length === 0 ? (
-          <p className="text-sm text-neutral-600">
-            No weekly availability set.
-          </p>
-        ) : (
-          rules.map((rule, index) => (
-            <div
-              className="grid gap-2 rounded-md border p-3 sm:grid-cols-5"
-              key={index}
-            >
-              <select
-                aria-label={`Weekday ${index + 1}`}
-                className="h-10 rounded-md border px-2 text-sm"
-                value={rule.weekday}
-                onChange={(event) =>
-                  setRules((items) =>
-                    items.map((item, i) =>
-                      i === index
-                        ? { ...item, weekday: Number(event.target.value) }
-                        : item,
-                    ),
-                  )
-                }
-              >
-                {[
-                  "Monday",
-                  "Tuesday",
-                  "Wednesday",
-                  "Thursday",
-                  "Friday",
-                  "Saturday",
-                  "Sunday",
-                ].map((day, i) => (
-                  <option value={i} key={day}>
-                    {day}
-                  </option>
-                ))}
-              </select>
-              <Input
-                aria-label={`Start time ${index + 1}`}
-                type="time"
-                value={rule.start_time}
-                onChange={(event) =>
-                  setRules((items) =>
-                    items.map((item, i) =>
-                      i === index
-                        ? { ...item, start_time: event.target.value }
-                        : item,
-                    ),
-                  )
-                }
-              />
-              <Input
-                aria-label={`End time ${index + 1}`}
-                type="time"
-                value={rule.end_time}
-                onChange={(event) =>
-                  setRules((items) =>
-                    items.map((item, i) =>
-                      i === index
-                        ? { ...item, end_time: event.target.value }
-                        : item,
-                    ),
-                  )
-                }
-              />
-              <Input
-                aria-label={`Timezone ${index + 1}`}
-                value={rule.timezone}
-                onChange={(event) =>
-                  setRules((items) =>
-                    items.map((item, i) =>
-                      i === index
-                        ? { ...item, timezone: event.target.value }
-                        : item,
-                    ),
-                  )
-                }
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() =>
-                  setRules((items) => items.filter((_, i) => i !== index))
-                }
-              >
-                Remove
-              </Button>
-            </div>
-          ))
-        )}
-        <Button
-          type="button"
-          disabled={saving !== null}
-          onClick={() => void saveRules()}
-        >
-          {saving === "rules" ? "Saving…" : "Save availability"}
-        </Button>
-      </section>
-
-      <section className="space-y-4 rounded-lg border bg-white p-5">
-        <h2 className="text-lg font-semibold">Blockouts</h2>
-        <form className="grid gap-3 sm:grid-cols-4" onSubmit={addBlockout}>
-          <div>
-            <Label htmlFor="starts_at">Starts</Label>
-            <Input
-              className="mt-2"
-              id="starts_at"
-              name="starts_at"
-              type="datetime-local"
-              required
-            />
-          </div>
-          <div>
-            <Label htmlFor="ends_at">Ends</Label>
-            <Input
-              className="mt-2"
-              id="ends_at"
-              name="ends_at"
-              type="datetime-local"
-              required
-            />
-          </div>
-          <div>
-            <Label htmlFor="reason">Reason</Label>
-            <Input className="mt-2" id="reason" name="reason" />
-          </div>
-          <div className="self-end">
+          <div className="sm:col-span-2">
             <Button type="submit" disabled={saving !== null}>
-              {saving === "blockout" ? "Adding…" : "Add blockout"}
+              {saving === "profile" ? "Saving…" : "Save profile"}
             </Button>
           </div>
         </form>
-        {blockouts.length === 0 ? (
-          <p className="text-sm text-neutral-600">No blockouts.</p>
-        ) : (
-          <ul className="space-y-2">
-            {blockouts.map((item) => (
-              <li
-                className="flex items-center justify-between rounded-md border p-3 text-sm"
-                key={item.id}
+      )}
+
+      {(section === "all" || section === "skills") && (
+        <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Skills and domains</h2>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() =>
+                setSkills((items) => [...items, { ...emptySkill }])
+              }
+            >
+              Add skill
+            </Button>
+          </div>
+          {skills.length === 0 ? (
+            <p className="text-sm text-neutral-600">No skills added.</p>
+          ) : (
+            skills.map((skill, index) => (
+              <div
+                className="grid gap-2 rounded-md border p-3 sm:grid-cols-5"
+                key={index}
               >
-                <span>
-                  {new Date(item.starts_at).toLocaleString()} –{" "}
-                  {new Date(item.ends_at).toLocaleString()}
-                  {item.reason ? ` · ${item.reason}` : ""}
-                </span>
+                <select
+                  aria-label={`Domain ${index + 1}`}
+                  className="h-10 rounded-md border px-2 text-sm"
+                  value={skill.domain}
+                  onChange={(event) =>
+                    setSkills((items) =>
+                      items.map((item, i) =>
+                        i === index
+                          ? {
+                              ...item,
+                              domain: event.target
+                                .value as InterviewerSkillInput["domain"],
+                            }
+                          : item,
+                      ),
+                    )
+                  }
+                >
+                  {interviewerDomains.map((domain) => (
+                    <option key={domain}>{domain}</option>
+                  ))}
+                </select>
+                <Input
+                  aria-label={`Topic ${index + 1}`}
+                  placeholder="Topic"
+                  value={skill.topic}
+                  onChange={(event) =>
+                    setSkills((items) =>
+                      items.map((item, i) =>
+                        i === index
+                          ? { ...item, topic: event.target.value }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+                <Input
+                  aria-label={`Skill ${index + 1}`}
+                  placeholder="Skill"
+                  value={skill.skill_name}
+                  onChange={(event) =>
+                    setSkills((items) =>
+                      items.map((item, i) =>
+                        i === index
+                          ? { ...item, skill_name: event.target.value }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+                <Input
+                  aria-label={`Skill experience ${index + 1}`}
+                  type="number"
+                  min="0"
+                  max="60"
+                  step="0.1"
+                  value={skill.experience_years}
+                  onChange={(event) =>
+                    setSkills((items) =>
+                      items.map((item, i) =>
+                        i === index
+                          ? { ...item, experience_years: event.target.value }
+                          : item,
+                      ),
+                    )
+                  }
+                />
                 <Button
                   type="button"
-                  size="sm"
                   variant="outline"
-                  disabled={saving !== null}
-                  onClick={() => void removeBlockout(item.id)}
+                  onClick={() =>
+                    setSkills((items) => items.filter((_, i) => i !== index))
+                  }
                 >
-                  Delete
+                  Remove
                 </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+              </div>
+            ))
+          )}
+          <Button
+            type="button"
+            disabled={saving !== null}
+            onClick={() => void saveSkills()}
+          >
+            {saving === "skills" ? "Saving…" : "Save skills"}
+          </Button>
+        </section>
+      )}
+
+      {(section === "all" || section === "availability") && (
+        <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Weekly availability</h2>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setRules((items) => [...items, { ...emptyRule }])}
+            >
+              Add time
+            </Button>
+          </div>
+          {rules.length === 0 ? (
+            <p className="text-sm text-neutral-600">
+              No weekly availability set.
+            </p>
+          ) : (
+            rules.map((rule, index) => (
+              <div
+                className="grid gap-2 rounded-md border p-3 sm:grid-cols-5"
+                key={index}
+              >
+                <select
+                  aria-label={`Weekday ${index + 1}`}
+                  className="h-10 rounded-md border px-2 text-sm"
+                  value={rule.weekday}
+                  onChange={(event) =>
+                    setRules((items) =>
+                      items.map((item, i) =>
+                        i === index
+                          ? { ...item, weekday: Number(event.target.value) }
+                          : item,
+                      ),
+                    )
+                  }
+                >
+                  {[
+                    "Monday",
+                    "Tuesday",
+                    "Wednesday",
+                    "Thursday",
+                    "Friday",
+                    "Saturday",
+                    "Sunday",
+                  ].map((day, i) => (
+                    <option value={i} key={day}>
+                      {day}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  aria-label={`Start time ${index + 1}`}
+                  type="time"
+                  value={rule.start_time}
+                  onChange={(event) =>
+                    setRules((items) =>
+                      items.map((item, i) =>
+                        i === index
+                          ? { ...item, start_time: event.target.value }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+                <Input
+                  aria-label={`End time ${index + 1}`}
+                  type="time"
+                  value={rule.end_time}
+                  onChange={(event) =>
+                    setRules((items) =>
+                      items.map((item, i) =>
+                        i === index
+                          ? { ...item, end_time: event.target.value }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+                <Input
+                  aria-label={`Timezone ${index + 1}`}
+                  value={rule.timezone}
+                  onChange={(event) =>
+                    setRules((items) =>
+                      items.map((item, i) =>
+                        i === index
+                          ? { ...item, timezone: event.target.value }
+                          : item,
+                      ),
+                    )
+                  }
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setRules((items) => items.filter((_, i) => i !== index))
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+            ))
+          )}
+          <Button
+            type="button"
+            disabled={saving !== null}
+            onClick={() => void saveRules()}
+          >
+            {saving === "rules" ? "Saving…" : "Save availability"}
+          </Button>
+        </section>
+      )}
+
+      {(section === "all" || section === "blockouts") && (
+        <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-lg font-semibold">Blockouts</h2>
+          <form className="grid gap-3 sm:grid-cols-4" onSubmit={addBlockout}>
+            <div>
+              <Label htmlFor="starts_at">Starts</Label>
+              <Input
+                className="mt-2"
+                id="starts_at"
+                name="starts_at"
+                type="datetime-local"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="ends_at">Ends</Label>
+              <Input
+                className="mt-2"
+                id="ends_at"
+                name="ends_at"
+                type="datetime-local"
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="reason">Reason</Label>
+              <Input className="mt-2" id="reason" name="reason" />
+            </div>
+            <div className="self-end">
+              <Button type="submit" disabled={saving !== null}>
+                {saving === "blockout" ? "Adding…" : "Add blockout"}
+              </Button>
+            </div>
+          </form>
+          {blockouts.length === 0 ? (
+            <p className="text-sm text-neutral-600">No blockouts.</p>
+          ) : (
+            <ul className="space-y-2">
+              {blockouts.map((item) => (
+                <li
+                  className="flex items-center justify-between rounded-md border p-3 text-sm"
+                  key={item.id}
+                >
+                  <span>
+                    {new Date(item.starts_at).toLocaleString()} –{" "}
+                    {new Date(item.ends_at).toLocaleString()}
+                    {item.reason ? ` · ${item.reason}` : ""}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={saving !== null}
+                    onClick={() => void removeBlockout(item.id)}
+                  >
+                    Delete
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
     </div>
   );
 }

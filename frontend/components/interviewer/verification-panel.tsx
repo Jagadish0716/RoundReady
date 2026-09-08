@@ -122,6 +122,15 @@ export function VerificationPanel() {
 
   if (!detail) return null;
   const locked = detail.status === "verified" || detail.status === "suspended";
+  const checkLabels = {
+    email_verified: "Email verified",
+    mobile_verified: "Mobile verified",
+    linkedin_reviewed: "LinkedIn reviewed",
+    company_email_verified: "Company email verified",
+    professional_evidence_reviewed: "Professional evidence reviewed",
+    screening_call_passed: "Screening call passed",
+  } as const;
+  const completed = detail.checks.filter((check) => check.passed).length;
 
   return (
     <section
@@ -147,6 +156,42 @@ export function VerificationPanel() {
           {detail.rejection_reason ?? detail.suspension_reason}
         </p>
       )}
+      <div
+        className="rounded-xl bg-slate-50 p-4"
+        aria-label="Verification progress"
+      >
+        <div className="flex items-center justify-between text-sm font-medium">
+          <span>Verification progress</span>
+          <span>
+            {completed}/{Object.keys(checkLabels).length} checks
+          </span>
+        </div>
+        <div className="mt-3 grid gap-2 sm:grid-cols-2">
+          {Object.entries(checkLabels).map(([type, label]) => {
+            const passed = detail.checks.some(
+              (check) => check.check_type === type && check.passed,
+            );
+            return (
+              <p
+                key={type}
+                className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
+              >
+                <span
+                  className={passed ? "text-emerald-700" : "text-slate-500"}
+                >
+                  {passed ? "Completed" : "Pending"}
+                </span>{" "}
+                · {label}
+              </p>
+            );
+          })}
+        </div>
+        <p className="mt-3 text-sm text-slate-600">
+          Screening call:{" "}
+          {detail.screening?.screening_status.replace("_", " ") ??
+            "not scheduled"}
+        </p>
+      </div>
       <div className="grid gap-4 sm:grid-cols-2">
         {evidenceFields.map(([type, label, placeholder]) => (
           <div key={type}>

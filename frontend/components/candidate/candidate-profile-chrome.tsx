@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import {
   Bell,
   CalendarDays,
@@ -13,17 +14,17 @@ import {
 import type { ReactNode } from "react";
 
 export function CandidateSidebar({ displayName }: { displayName: string }) {
+  const pathname = usePathname();
   const items = [
     { label: "Dashboard", href: "/candidate", icon: LayoutDashboard },
+    { label: "My Profile", href: "/candidate/profile", icon: UserRound },
     {
-      label: "My Profile",
-      href: "#candidate-profile",
-      icon: UserRound,
-      active: true,
+      label: "Browse Interviewers",
+      href: "/candidate/interviews",
+      icon: Search,
     },
-    { label: "Browse Interviewers", href: "/#interviewers", icon: Search },
-    { label: "My Bookings", href: "#interview-sessions", icon: CalendarDays },
-    { label: "Notifications", href: "#notifications", icon: Bell },
+    { label: "My Bookings", href: "/candidate/bookings", icon: CalendarDays },
+    { label: "Notifications", href: "/candidate/notifications", icon: Bell },
   ];
   return (
     <aside
@@ -40,17 +41,23 @@ export function CandidateSidebar({ displayName }: { displayName: string }) {
         </div>
       </div>
       <nav className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-1">
-        {items.map(({ label, href, icon: Icon, active }) => (
-          <Link
-            key={label}
-            href={href}
-            aria-current={active ? "page" : undefined}
-            className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:outline-none ${active ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"}`}
-          >
-            <Icon className="h-4 w-4" aria-hidden="true" />
-            {label}
-          </Link>
-        ))}
+        {items.map(({ label, href, icon: Icon }) => {
+          const active =
+            href === "/candidate"
+              ? pathname === href
+              : pathname === href || pathname.startsWith(`${href}/`);
+          return (
+            <Link
+              key={label}
+              href={href}
+              aria-current={active ? "page" : undefined}
+              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:outline-none ${active ? "bg-blue-50 text-blue-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-950"}`}
+            >
+              <Icon className="h-4 w-4" aria-hidden="true" />
+              {label}
+            </Link>
+          );
+        })}
       </nav>
       <div className="mt-6 hidden rounded-lg border border-blue-100 bg-blue-50/60 p-4 lg:block">
         <div className="flex gap-3">

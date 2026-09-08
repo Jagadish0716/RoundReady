@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -34,13 +34,15 @@ def service(session: DatabaseSession, holds: HoldStore, settings: AppSettings) -
 
 @router.get("/public/slots", response_model=list[SlotResponse])
 async def public_slots(
-    starts_after: Annotated[datetime, Query()],
-    ends_before: Annotated[datetime, Query()],
     session: DatabaseSession,
     holds: HoldStore,
     settings: AppSettings,
+    starts_after: Annotated[datetime | None, Query()] = None,
+    ends_before: Annotated[datetime | None, Query()] = None,
     interviewer_id: Annotated[UUID | None, Query()] = None,
 ) -> list[SlotResponse]:
+    starts_after = starts_after or datetime.now(UTC)
+    ends_before = ends_before or starts_after + timedelta(days=30)
     slots = await service(session, holds, settings).available_slots(
         starts_after, ends_before, interviewer_id
     )

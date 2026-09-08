@@ -16,10 +16,15 @@ const money = (paise: number) =>
     maximumFractionDigits: 0,
   }).format(paise / 100);
 
-export function PublicDiscovery() {
+export function PublicDiscovery({
+  authenticated = false,
+}: {
+  authenticated?: boolean;
+}) {
   const [interviewers, setInterviewers] = useState<PublicInterviewer[]>([]);
   const [slots, setSlots] = useState<PublicSlot[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     const starts = new Date();
     const ends = new Date(starts);
@@ -34,7 +39,8 @@ export function PublicDiscovery() {
       })
       .catch(() =>
         setError("Public interview availability could not be loaded."),
-      );
+      )
+      .finally(() => setLoading(false));
   }, []);
   return (
     <section
@@ -44,7 +50,9 @@ export function PublicDiscovery() {
     >
       <header>
         <p className="text-sm font-semibold text-blue-700">
-          Explore freely. Sign in when you&apos;re ready to book.
+          {authenticated
+            ? "Choose a verified interviewer and an available slot."
+            : "Explore freely. Sign in when you’re ready to book."}
         </p>
         <h2 id="discovery-heading" className="mt-2 text-3xl font-semibold">
           Verified interviewers
@@ -59,8 +67,11 @@ export function PublicDiscovery() {
           {error}
         </p>
       )}
-      {interviewers.length === 0 && !error ? (
-        <p role="status">Loading verified interviewers…</p>
+      {loading ? <p role="status">Loading verified interviewers…</p> : null}
+      {!loading && interviewers.length === 0 && !error ? (
+        <p role="status" className="rounded-md bg-slate-50 p-4 text-slate-600">
+          No interview slots are available right now. Please check again soon.
+        </p>
       ) : null}
       <div className="grid gap-6 md:grid-cols-2">
         {interviewers.map((person) => {
@@ -139,7 +150,11 @@ export function PublicDiscovery() {
                         </div>
                         <Button asChild size="sm">
                           <Link
-                            href={`/login?next=${encodeURIComponent(next)}`}
+                            href={
+                              authenticated
+                                ? next
+                                : `/login?next=${encodeURIComponent(next)}`
+                            }
                           >
                             Book interview
                           </Link>

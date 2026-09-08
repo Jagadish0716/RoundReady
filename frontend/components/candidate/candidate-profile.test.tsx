@@ -75,9 +75,6 @@ describe("CandidateProfileForm", () => {
     expect(screen.getByLabelText("Email address")).toBeDisabled();
     expect(screen.getByLabelText("Email address")).toHaveAttribute("readonly");
     expect(
-      screen.getByRole("complementary", { name: "Candidate navigation" }),
-    ).toBeInTheDocument();
-    expect(
       screen.getByRole("complementary", { name: "Profile guidance" }),
     ).toBeInTheDocument();
   });
@@ -89,13 +86,18 @@ describe("CandidateProfileForm", () => {
     fireEvent.change(screen.getByLabelText("City"), { target: { value: "" } });
     expect(screen.getByLabelText("Profile 78% complete")).toBeInTheDocument();
   });
-  it("renders responsive dashboard structure without fixed page widths", async () => {
+  it("renders responsive profile structure without fixed page widths", async () => {
     render(<CandidateProfileForm />);
     await screen.findByLabelText("Full name");
-    const dashboard = screen.getByLabelText("Candidate profile dashboard");
-    expect(dashboard).toHaveClass("min-w-0");
-    expect(dashboard.className).toContain("lg:grid-cols-");
-    expect(dashboard.className).toContain("xl:grid-cols-");
+    const form = screen.getByLabelText("Candidate profile");
+    expect(form).toHaveClass("min-w-0");
+    expect(form.className).toContain("xl:grid-cols-");
+  });
+  it("keeps the country selector compact and gives the mobile input remaining width", async () => {
+    render(<CandidateProfileForm />);
+    const selector = await screen.findByLabelText("Country code");
+    expect(selector).toHaveClass("max-w-[200px]");
+    expect(screen.getByLabelText("Mobile number")).toHaveClass("min-w-0");
   });
   it("submits canonical phone without email", async () => {
     render(<CandidateProfileForm />);
@@ -110,6 +112,51 @@ describe("CandidateProfileForm", () => {
     );
     expect(save?.[1].body.phone).toBe("+919876543210");
     expect(save?.[1].body).not.toHaveProperty("email");
+  });
+  it.each(["987654321", "1234567890", "5123456789"])(
+    "rejects invalid Indian mobile number %s",
+    async (attempted) => {
+      render(<CandidateProfileForm />);
+      const input = await screen.findByLabelText("Mobile number");
+      fireEvent.change(input, { target: { value: "" } });
+      fireEvent.change(input, { target: { value: attempted } });
+      if (attempted.length === 9) {
+        fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+        expect(
+          await screen.findAllByText(
+            "Enter a valid 10-digit Indian mobile number.",
+          ),
+        ).toHaveLength(2);
+      } else {
+        expect(input).toHaveValue("");
+      }
+    },
+  );
+  it.each(["98765432100", "abcdefghij", "+919876543210"])(
+    "rejects invalid Indian phone input %s without displaying it",
+    async (attempted) => {
+      render(<CandidateProfileForm />);
+      const input = await screen.findByLabelText("Mobile number");
+      expect(input).toHaveValue("9876543210");
+      fireEvent.change(input, { target: { value: attempted } });
+      expect(input).toHaveValue("9876543210");
+    },
+  );
+  it("uses international validation after switching away from India", async () => {
+    render(<CandidateProfileForm />);
+    await screen.findByLabelText("Full name");
+    fireEvent.change(screen.getByLabelText("Country code"), {
+      target: { value: "United States (+1)" },
+    });
+    fireEvent.change(screen.getByLabelText("Mobile number"), {
+      target: { value: "2025550123" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    await screen.findByText("Profile saved successfully.");
+    const save = mocks.request.mock.calls.find(
+      (call) => call[1]?.method === "PUT",
+    );
+    expect(save?.[1].body.phone).toBe("+12025550123");
   });
   it.each([
     "21",

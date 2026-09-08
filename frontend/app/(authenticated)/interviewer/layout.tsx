@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { ProtectedRoute } from "@/components/auth/protected-route";
+import { InterviewerShell } from "@/components/interviewer/interviewer-shell";
 import { RoleShell } from "@/components/layout/role-shell";
 
 export default function InterviewerLayout({
@@ -9,7 +10,9 @@ export default function InterviewerLayout({
 }) {
   return (
     <ProtectedRoute allowedRoles={["interviewer"]}>
-      <RoleShell role="Interviewer">{children}</RoleShell>
+      <RoleShell role="Interviewer">
+        <InterviewerShell>{children}</InterviewerShell>
+      </RoleShell>
     </ProtectedRoute>
   );
 }

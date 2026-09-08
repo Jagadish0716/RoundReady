@@ -331,3 +331,11 @@ def test_anonymous_public_slot_read_is_allowed_but_booking_writes_are_protected(
         json={"slot_id": slot["id"], "hold_token": "x" * 32},
     )
     assert response.status_code == 401
+
+
+def test_empty_public_slot_collection_uses_default_discovery_window(
+    client: TestClient,
+) -> None:
+    response = client.get("/v1/public/slots")
+    assert response.status_code == 200
+    assert response.json() == []
