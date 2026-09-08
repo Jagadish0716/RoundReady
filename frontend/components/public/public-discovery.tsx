@@ -89,8 +89,11 @@ export function PublicDiscovery({
                     RoundReady Verified
                   </p>
                   <h3 className="mt-1 text-xl font-semibold">
-                    {person.headline}
+                    {person.full_name ?? "Name not provided"}
                   </h3>
+                  <p className="mt-1 font-medium text-slate-700">
+                    {person.headline}
+                  </p>
                   <p className="text-sm text-neutral-600">
                     {person.job_title ?? "Technology interviewer"} ·{" "}
                     {person.experience_years} years

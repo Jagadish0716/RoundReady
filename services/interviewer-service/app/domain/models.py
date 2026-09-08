@@ -80,6 +80,7 @@ class InterviewerProfile(Base):
     )
 
     user_id: Mapped[UUID] = mapped_column(primary_key=True)
+    full_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     headline: Mapped[str] = mapped_column(String(180))
     company: Mapped[str | None] = mapped_column(String(160), nullable=True)
     job_title: Mapped[str | None] = mapped_column(String(160), nullable=True)
@@ -252,6 +253,46 @@ class VerificationReviewHistory(Base):
     to_status: Mapped[str] = mapped_column(String(32))
     reviewed_by: Mapped[UUID] = mapped_column()
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class InterviewerContactVerification(Base):
+    __tablename__ = "interviewer_contact_verifications"
+
+    interviewer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("interviewer_profiles.user_id", ondelete="CASCADE"), primary_key=True
+    )
+    mobile_e164: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    mobile_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    company_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    company_email_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class ContactVerificationChallenge(Base):
+    __tablename__ = "contact_verification_challenges"
+    __table_args__ = (
+        Index("ix_contact_challenge_owner_kind", "interviewer_id", "kind", "created_at"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    interviewer_id: Mapped[UUID] = mapped_column(
+        ForeignKey("interviewer_profiles.user_id", ondelete="CASCADE"), index=True
+    )
+    kind: Mapped[str] = mapped_column(String(32))
+    target_fingerprint: Mapped[str] = mapped_column(String(64))
+    secret_hash: Mapped[str] = mapped_column(String(64))
+    attempt_count: Mapped[int] = mapped_column(default=0)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    resend_available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

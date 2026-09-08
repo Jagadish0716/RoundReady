@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   Bell,
   CalendarClock,
@@ -14,6 +14,7 @@ import {
   Video,
 } from "lucide-react";
 import { useAuth } from "@/components/providers/auth-provider";
+import { getInterviewerProfile } from "@/lib/api/interviewer";
 
 const items = [
   ["Dashboard", "/interviewer", LayoutDashboard],
@@ -28,11 +29,35 @@ const items = [
 
 export function InterviewerShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const { state } = useAuth();
-  const name =
-    state.status === "authenticated"
-      ? state.session.user.email.split("@")[0]
-      : "Interviewer";
+  const { request } = useAuth();
+  const [name, setName] = useState("Name not provided");
+  useEffect(() => {
+    let active = true;
+    getInterviewerProfile(request)
+      .then((profile) => {
+        if (active && profile.full_name) setName(profile.full_name);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [request]);
+  useEffect(() => {
+    function updateName(event: Event) {
+      const fullName = (event as CustomEvent<{ fullName?: string | null }>)
+        .detail?.fullName;
+      setName(fullName?.trim() || "Name not provided");
+    }
+    window.addEventListener(
+      "roundready:interviewer-profile-updated",
+      updateName,
+    );
+    return () =>
+      window.removeEventListener(
+        "roundready:interviewer-profile-updated",
+        updateName,
+      );
+  }, []);
   return (
     <div className="grid min-w-0 gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
       <aside

@@ -11,6 +11,8 @@ export function authErrorMessage(
   }
   if (error.status === 401 && context === "login")
     return "Email or password is incorrect.";
+  if (error.code === "email_verification_required" && context === "login")
+    return "Your email has not been verified yet. Verify your email before continuing.";
   if (error.status === 422) return error.message;
   if (error.status === 429)
     return "Too many attempts. Please wait and try again.";

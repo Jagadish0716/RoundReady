@@ -14,6 +14,7 @@ vi.mock("@/lib/api/public-discovery", () => ({
 const interviewers = [
   {
     interviewer_id: "11111111-1111-4111-8111-111111111111",
+    full_name: "Jagadisha V",
     headline: "Backend interview coach",
     job_title: "Principal Engineer",
     experience_years: "12.0",
@@ -64,6 +65,7 @@ describe("PublicDiscovery", () => {
       await screen.findByText("Backend interview coach"),
     ).toBeInTheDocument();
     expect(screen.getByText("RoundReady Verified")).toBeInTheDocument();
+    expect(screen.getByText("Jagadisha V")).toBeInTheDocument();
     expect(screen.getByText("₹200")).toBeInTheDocument();
     expect(screen.getByText("Interview language: English")).toBeInTheDocument();
     expect(
@@ -87,6 +89,14 @@ describe("PublicDiscovery", () => {
       "/candidate?slot=22222222-2222-4222-8222-222222222222&interviewer=11111111-1111-4111-8111-111111111111",
     );
     expect(screen.queryByText(/sign in when/i)).not.toBeInTheDocument();
+  });
+  it("uses a neutral fallback rather than an email when a legacy name is absent", async () => {
+    mocks.listInterviewers.mockResolvedValue([
+      { ...interviewers[0], full_name: null },
+    ]);
+    render(<PublicDiscovery />);
+    expect(await screen.findByText("Name not provided")).toBeInTheDocument();
+    expect(screen.queryByText(/@/)).not.toBeInTheDocument();
   });
   it("shows an empty state when the APIs return no availability", async () => {
     mocks.listInterviewers.mockResolvedValue([]);

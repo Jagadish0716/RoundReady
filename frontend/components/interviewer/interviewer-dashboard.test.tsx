@@ -3,13 +3,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { InterviewerDashboard } from "@/components/interviewer/interviewer-dashboard";
 
 const profile = {
+  full_name: "John Smith",
   headline: "Platform interviewer",
   company: "RoundReady",
   job_title: "Staff Engineer",
   experience_years: "10.0",
   linkedin_url: "https://linkedin.com/in/example",
-  github_url: null,
-  bio: "Experienced platform interviewer",
+  github_url: "https://github.com/example",
+  bio: "Experienced platform interviewer who mentors engineers across system design topics.",
   verification_status: "under_review",
   verification_reason: null,
   rating_average: "4.50",
@@ -41,11 +42,11 @@ describe("InterviewerDashboard", () => {
     );
     render(<InterviewerDashboard />);
     expect(
-      screen.getByRole("heading", { name: "Welcome back, john!" }),
+      await screen.findByRole("heading", { name: "Welcome back, John!" }),
     ).toBeInTheDocument();
     expect(await screen.findByText("UNDER REVIEW")).toBeInTheDocument();
     expect(screen.getByText("8")).toBeInTheDocument();
     expect(screen.getByText("4.50")).toBeInTheDocument();
-    expect(screen.getByText("89%")).toBeInTheDocument();
+    expect(screen.getByText("100%")).toBeInTheDocument();
   });
 });

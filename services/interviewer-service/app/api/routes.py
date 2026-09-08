@@ -5,7 +5,11 @@ from app.api.schemas import (
     BlockoutCreateRequest,
     BlockoutResponse,
     CandidateTrustResponse,
+    ChallengeResponse,
+    ChallengeVerifyRequest,
+    CompanyEmailVerificationRequest,
     EvidenceInput,
+    MobileVerificationRequest,
     ProfileResponse,
     ProfileUpsertRequest,
     PublicInterviewerResponse,
@@ -21,6 +25,7 @@ from app.api.schemas import (
 from app.application.interviewer_service import InterviewerService
 from app.dependencies import (
     AdminIdentity,
+    AppSettings,
     AuthenticatedIdentity,
     DatabaseSession,
     InterviewerIdentity,
@@ -75,11 +80,76 @@ async def submit_verification(
 
 @router.get("/me/verification", response_model=VerificationDetailResponse)
 async def own_verification(
-    identity: InterviewerIdentity, session: DatabaseSession
+    identity: InterviewerIdentity, session: DatabaseSession, settings: AppSettings
 ) -> VerificationDetailResponse:
-    return VerificationDetailResponse.model_validate(
-        await InterviewerService(session).get_verification(identity.user_id)
+    service = InterviewerService(session, settings)
+    detail = await service.get_verification(identity.user_id)
+    detail.update(
+        await service.contact_verification(
+            identity.user_id, identity.email, identity.email_verified
+        )
     )
+    return VerificationDetailResponse.model_validate(detail)
+
+
+@router.post("/me/verification/mobile/request", response_model=ChallengeResponse)
+async def request_mobile_verification(
+    request: MobileVerificationRequest,
+    identity: InterviewerIdentity,
+    session: DatabaseSession,
+    settings: AppSettings,
+) -> ChallengeResponse:
+    return await InterviewerService(session, settings).request_mobile_verification(
+        identity.user_id, request.mobile
+    )
+
+
+@router.post("/me/verification/mobile/verify", response_model=VerificationDetailResponse)
+async def verify_mobile(
+    request: ChallengeVerifyRequest,
+    identity: InterviewerIdentity,
+    session: DatabaseSession,
+    settings: AppSettings,
+) -> VerificationDetailResponse:
+    service = InterviewerService(session, settings)
+    await service.verify_contact_challenge(identity.user_id, request.challenge_id, request.secret)
+    detail = await service.get_verification(identity.user_id)
+    detail.update(
+        await service.contact_verification(
+            identity.user_id, identity.email, identity.email_verified
+        )
+    )
+    return VerificationDetailResponse.model_validate(detail)
+
+
+@router.post("/me/verification/company-email/request", response_model=ChallengeResponse)
+async def request_company_email_verification(
+    request: CompanyEmailVerificationRequest,
+    identity: InterviewerIdentity,
+    session: DatabaseSession,
+    settings: AppSettings,
+) -> ChallengeResponse:
+    return await InterviewerService(session, settings).request_company_email_verification(
+        identity.user_id, str(request.company_email)
+    )
+
+
+@router.post("/me/verification/company-email/verify", response_model=VerificationDetailResponse)
+async def verify_company_email(
+    request: ChallengeVerifyRequest,
+    identity: InterviewerIdentity,
+    session: DatabaseSession,
+    settings: AppSettings,
+) -> VerificationDetailResponse:
+    service = InterviewerService(session, settings)
+    await service.verify_contact_challenge(identity.user_id, request.challenge_id, request.secret)
+    detail = await service.get_verification(identity.user_id)
+    detail.update(
+        await service.contact_verification(
+            identity.user_id, identity.email, identity.email_verified
+        )
+    )
+    return VerificationDetailResponse.model_validate(detail)
 
 
 @router.put("/me/verification/evidence", response_model=VerificationDetailResponse)
@@ -198,9 +268,10 @@ async def admin_list_interviewers(
 async def admin_verification_detail(
     interviewer_id: UUID, _admin: AdminIdentity, session: DatabaseSession
 ) -> VerificationDetailResponse:
-    return VerificationDetailResponse.model_validate(
-        await InterviewerService(session).get_verification(interviewer_id, include_history=True)
-    )
+    service = InterviewerService(session)
+    detail = await service.get_verification(interviewer_id, include_history=True)
+    detail.update(await service.contact_verification(interviewer_id))
+    return VerificationDetailResponse.model_validate(detail)
 
 
 @router.post(

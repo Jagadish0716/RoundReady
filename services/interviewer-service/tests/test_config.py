@@ -12,5 +12,6 @@ def test_interviewer_service_environment_hardening() -> None:
         database_url="postgresql+asyncpg://interviewer:LongRandomDatabaseCredential9@db.internal/interviewer",
         rabbitmq_url="amqps://interviewer:LongRandomRabbitCredential9@rabbit.internal/roundready",
         internal_identity_secret="i" * 40,
+        contact_verification_secret="c" * 40,
     )
     assert settings.environment == "production"

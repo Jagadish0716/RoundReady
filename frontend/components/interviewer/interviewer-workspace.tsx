@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { VerificationStatusCard } from "@/components/interviewer/verification-status";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -9,6 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ApiClientError } from "@/lib/api/client";
 import * as api from "@/lib/api/interviewer";
+import {
+  validateInterviewerProfile,
+  type InterviewerProfileErrors,
+} from "@/lib/interviewer-profile";
 import {
   interviewerDomains,
   type Blockout,
@@ -19,6 +23,7 @@ import {
 } from "@/types/interviewer";
 
 const emptyProfile: InterviewerProfileInput = {
+  full_name: "",
   headline: "",
   company: null,
   job_title: null,
@@ -46,6 +51,7 @@ function nullable(value: string): string | null {
 
 function profileInput(value: InterviewerProfile): InterviewerProfileInput {
   return {
+    full_name: value.full_name ?? "",
     headline: value.headline,
     company: value.company,
     job_title: value.job_title,
@@ -92,6 +98,10 @@ export function InterviewerWorkspace({
   const [saving, setSaving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [profileErrors, setProfileErrors] = useState<InterviewerProfileErrors>(
+    {},
+  );
+  const profileForm = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -130,20 +140,44 @@ export function InterviewerWorkspace({
   async function saveProfile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setNotice(null);
-    if (!profile.headline.trim()) return setError("Headline is required.");
-    const years = Number(profile.experience_years);
-    if (!validExperience(profile.experience_years) || !Number.isFinite(years))
-      return setError("Experience must be between 0 and 60 years.");
+    const validation = validateInterviewerProfile(profile);
+    setProfileErrors(validation);
+    const firstInvalid = Object.keys(validation)[0];
+    if (firstInvalid) {
+      setError(
+        "Some values are invalid. Review the highlighted fields and try again.",
+      );
+      profileForm.current
+        ?.querySelector<HTMLElement>(`#${firstInvalid}`)
+        ?.focus();
+      return;
+    }
     setSaving("profile");
     try {
       const saved = await api.saveInterviewerProfile(request, {
         ...profile,
+        full_name: profile.full_name.trim(),
         headline: profile.headline.trim(),
+        company: profile.company!.trim(),
+        job_title: profile.job_title!.trim(),
+        linkedin_url: profile.linkedin_url!.trim(),
+        github_url: profile.github_url!.trim(),
+        bio: profile.bio!.trim(),
       });
       setSavedProfile(saved);
       setProfile(profileInput(saved));
+      setProfileErrors({});
+      window.dispatchEvent(
+        new CustomEvent("roundready:interviewer-profile-updated", {
+          detail: { fullName: saved.full_name },
+        }),
+      );
       feedback("Professional profile saved.");
     } catch (caught) {
+      if (caught instanceof ApiClientError && caught.status === 422) {
+        const serverErrors = validateInterviewerProfile(profile);
+        setProfileErrors(serverErrors);
+      }
       setError(errorMessage(caught));
     } finally {
       setSaving(null);
@@ -277,6 +311,7 @@ export function InterviewerWorkspace({
 
       {(section === "all" || section === "profile") && (
         <form
+          ref={profileForm}
           className="grid gap-4 rounded-lg border bg-white p-5 sm:grid-cols-2"
           onSubmit={saveProfile}
           noValidate
@@ -286,6 +321,7 @@ export function InterviewerWorkspace({
           </h2>
           {(
             [
+              ["full_name", "Full name", "text", "e.g. Jagadisha V"],
               [
                 "headline",
                 "Headline",
@@ -310,15 +346,25 @@ export function InterviewerWorkspace({
             ] as const
           ).map(([field, label, type, placeholder]) => (
             <div key={field}>
-              <Label htmlFor={field}>{label}</Label>
+              <Label htmlFor={field}>
+                {label}{" "}
+                <span className="text-red-600" aria-hidden="true">
+                  *
+                </span>
+              </Label>
               <Input
                 className="mt-2"
                 id={field}
+                aria-label={label}
                 type={type}
                 inputMode={field === "experience_years" ? "decimal" : undefined}
                 placeholder={placeholder}
                 value={profile[field] ?? ""}
                 disabled={saving === "profile"}
+                aria-invalid={Boolean(profileErrors[field])}
+                aria-describedby={
+                  profileErrors[field] ? `${field}-error` : undefined
+                }
                 onChange={(event) => {
                   if (
                     field === "experience_years" &&
@@ -328,23 +374,42 @@ export function InterviewerWorkspace({
                   setProfile((current) => ({
                     ...current,
                     [field]:
-                      field === "headline" || field === "experience_years"
+                      field === "full_name" ||
+                      field === "headline" ||
+                      field === "experience_years"
                         ? event.target.value
                         : nullable(event.target.value),
                   }));
+                  setProfileErrors((current) => ({
+                    ...current,
+                    [field]: undefined,
+                  }));
                 }}
               />
+              {profileErrors[field] && (
+                <p id={`${field}-error`} className="mt-1 text-sm text-red-700">
+                  {profileErrors[field]}
+                </p>
+              )}
             </div>
           ))}
           <div className="sm:col-span-2">
-            <Label htmlFor="bio">Bio</Label>
+            <Label htmlFor="bio">
+              Bio{" "}
+              <span className="text-red-600" aria-hidden="true">
+                *
+              </span>
+            </Label>
             <textarea
               id="bio"
+              aria-label="Bio"
               className="mt-2 min-h-28 w-full rounded-md border border-neutral-300 p-3 text-sm"
               maxLength={4000}
               placeholder="Tell candidates about your experience, expertise and what makes you a great interviewer..."
               value={profile.bio ?? ""}
               disabled={saving === "profile"}
+              aria-invalid={Boolean(profileErrors.bio)}
+              aria-describedby={profileErrors.bio ? "bio-error" : "bio-help"}
               onChange={(event) =>
                 setProfile((current) => ({
                   ...current,
@@ -352,6 +417,15 @@ export function InterviewerWorkspace({
                 }))
               }
             />
+            <p id="bio-help" className="mt-1 text-xs text-slate-500">
+              Tell candidates about your experience, expertise, and interview
+              style.
+            </p>
+            {profileErrors.bio && (
+              <p id="bio-error" className="mt-1 text-sm text-red-700">
+                {profileErrors.bio}
+              </p>
+            )}
           </div>
           <div className="sm:col-span-2">
             <Button type="submit" disabled={saving !== null}>

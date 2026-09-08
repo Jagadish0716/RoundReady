@@ -33,6 +33,8 @@ PUBLIC_PATHS = {
     ("POST", "v1/auth/register"),
     ("POST", "v1/auth/login"),
     ("POST", "v1/auth/refresh"),
+    ("POST", "v1/auth/verify-email"),
+    ("POST", "v1/auth/resend-verification"),
     ("POST", "v1/payments/webhooks/razorpay"),
 }
 
@@ -109,7 +111,13 @@ async def proxy(
     rate_key = f"user:{identity.user_id}" if identity else f"client:{remote}"
     limit = settings.rate_limit_requests
     window = settings.rate_limit_window_seconds
-    if public and path in {"v1/auth/login", "v1/auth/register", "v1/auth/refresh"}:
+    if public and path in {
+        "v1/auth/login",
+        "v1/auth/register",
+        "v1/auth/refresh",
+        "v1/auth/verify-email",
+        "v1/auth/resend-verification",
+    }:
         rate_key = f"auth:{path}:client:{remote}"
         limit = settings.auth_rate_limit_requests
         window = settings.auth_rate_limit_window_seconds
@@ -136,6 +144,7 @@ async def proxy(
                 "X-User-ID": str(identity.user_id),
                 "X-User-Role": identity.role.value,
                 "X-User-Email": identity.email,
+                "X-User-Email-Verified": "true" if identity.email_verified else "false",
                 "X-Internal-Identity-Secret": settings.internal_identity_secret.get_secret_value(),
             }
         )

@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     )
     access_token_ttl_seconds: int = Field(default=900, ge=1, le=3600)
     refresh_token_ttl_seconds: int = Field(default=2_592_000, ge=60, le=7_776_000)
+    email_verification_ttl_seconds: int = Field(default=3600, ge=300, le=86400)
+    email_verification_resend_cooldown_seconds: int = Field(default=60, ge=1, le=3600)
+    frontend_base_url: str = "http://localhost:3000"
+    email_provider: Literal["development", "resend"] = "development"
+    resend_api_base_url: str = "https://api.resend.com"
+    resend_api_key: SecretStr = SecretStr("")
+    email_from_address: str = ""
+    provider_timeout_seconds: float = Field(default=10, gt=0, le=60)
 
     @model_validator(mode="after")
     def production_configuration(self) -> "Settings":
@@ -67,6 +75,13 @@ class Settings(BaseSettings):
             raise ValueError("JWT_ISSUER must be explicitly configured in production")
         if self.jwt_audience.strip() in {"", "roundready-api"}:
             raise ValueError("JWT_AUDIENCE must be explicitly configured in production")
+        if self.email_provider != "resend":
+            raise ValueError("EMAIL_PROVIDER must be resend in production")
+        require_url("FRONTEND_BASE_URL", self.frontend_base_url, schemes={"https"})
+        require_url("RESEND_API_BASE_URL", self.resend_api_base_url, schemes={"https"})
+        require_secret("RESEND_API_KEY", self.resend_api_key)
+        if not self.email_from_address.strip():
+            raise ValueError("EMAIL_FROM_ADDRESS is required in production")
         return self
 
 

@@ -10,6 +10,7 @@ export interface PublicInterviewerSkill {
 
 export interface PublicInterviewer {
   interviewer_id: string;
+  full_name: string | null;
   headline: string;
   job_title: string | null;
   experience_years: string;

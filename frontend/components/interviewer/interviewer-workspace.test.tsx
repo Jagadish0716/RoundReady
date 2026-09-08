@@ -13,13 +13,14 @@ vi.mock("@/components/providers/auth-provider", () => ({
 
 const profile = {
   user_id: "c731b75e-6ca0-4c79-a590-33075d26481d",
+  full_name: "Jagadisha V",
   headline: "Platform engineering interviewer",
   company: "RoundReady Labs",
   job_title: "Staff Engineer",
   experience_years: "10.0",
   linkedin_url: "https://www.linkedin.com/in/interviewer",
   github_url: "https://github.com/interviewer",
-  bio: "Backend and platform specialist",
+  bio: "Backend and platform specialist with extensive interview mentoring experience.",
   verification_status: "pending",
   verification_reason: null,
   rating_average: "0.00",
@@ -57,8 +58,55 @@ describe("InterviewerWorkspace", () => {
     expect(await screen.findByLabelText("Headline")).toHaveValue(
       profile.headline,
     );
+    expect(screen.getByLabelText("Full name")).toHaveValue(profile.full_name);
     expect(screen.getByText("PENDING")).toBeInTheDocument();
     expect(screen.getByText("No weekly availability set.")).toBeInTheDocument();
+  });
+
+  it("requires a full name before saving", async () => {
+    render(<InterviewerWorkspace section="profile" />);
+    fireEvent.change(await screen.findByLabelText("Full name"), {
+      target: { value: "   " },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    expect(screen.getByText("Full name is required.")).toBeInTheDocument();
+  });
+
+  it("marks every professional field required and reports field-specific errors", async () => {
+    render(<InterviewerWorkspace section="profile" />);
+    await screen.findByLabelText("Full name");
+    for (const label of [
+      "Full name",
+      "Headline",
+      "Company",
+      "Job title",
+      "Experience (years)",
+      "LinkedIn URL",
+      "GitHub URL",
+      "Bio",
+    ])
+      expect(
+        screen.getByLabelText(label).closest("div")?.querySelector("label"),
+      ).toHaveTextContent("*");
+    fireEvent.change(screen.getByLabelText("LinkedIn URL"), {
+      target: { value: "https://www.linkedin.com/not-a-profile" },
+    });
+    fireEvent.change(screen.getByLabelText("GitHub URL"), {
+      target: { value: "https://github.com/user/repository" },
+    });
+    fireEvent.change(screen.getByLabelText("Bio"), {
+      target: { value: "Too short" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    expect(
+      screen.getByText("Enter a valid LinkedIn profile URL."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Enter a valid GitHub profile URL."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Bio must be at least 50 characters."),
+    ).toBeInTheDocument();
   });
 
   it("handles profile-not-created", async () => {

@@ -12,6 +12,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: Password
     role: Role
+    next: Annotated[str | None, Field(max_length=2048)] = None
 
     @field_validator("role")
     @classmethod
@@ -24,6 +25,24 @@ class RegisterRequest(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr
     password: Annotated[str, Field(min_length=1, max_length=128)]
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+    next: Annotated[str | None, Field(max_length=2048)] = None
+
+
+class VerifyEmailRequest(BaseModel):
+    token: Annotated[str, Field(min_length=32, max_length=512)]
+
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+class VerificationResponse(BaseModel):
+    status: str
+    message: str
 
 
 class RefreshRequest(BaseModel):
@@ -50,3 +69,14 @@ class IdentityResponse(BaseModel):
     role: Role
     is_active: bool
     created_at: datetime
+    email_verified_at: datetime | None
+    email_verified: bool
+
+    @classmethod
+    def from_credential(cls, credential: object) -> "IdentityResponse":
+        data = cls.model_validate(credential, from_attributes=True)
+        return data.model_copy(update={"email_verified": data.email_verified_at is not None})
+
+
+class RegistrationResponse(IdentityResponse):
+    development_verification_url: str | None = None

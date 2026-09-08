@@ -25,6 +25,7 @@ class Identity:
     user_id: UUID
     role: Role
     email: str
+    email_verified: bool = False
 
 
 AppSettings = Annotated[Settings, Depends(get_settings)]
@@ -82,6 +83,7 @@ async def authenticate(
             user_id=UUID(str(body["id"])),
             role=Role(str(body["role"])),
             email=str(body["email"]),
+            email_verified=body.get("email_verified") is True,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ServiceError(

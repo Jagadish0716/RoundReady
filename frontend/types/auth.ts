@@ -8,6 +8,12 @@ export interface AuthUser {
   role: Role;
   isActive: boolean;
   createdAt: string;
+  emailVerified?: boolean;
+  emailVerifiedAt?: string | null;
+}
+
+export interface RegistrationResult extends AuthUser {
+  developmentVerificationUrl: string | null;
 }
 
 export interface TokenPair {

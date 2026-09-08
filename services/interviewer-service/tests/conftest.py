@@ -45,6 +45,7 @@ def headers(role: str = "interviewer", user_id: UUID | None = None) -> dict[str,
     return {
         "X-User-ID": str(user_id or uuid4()),
         "X-User-Role": role,
+        "X-User-Email": f"{role}-{user_id or 'local'}@example.in",
         "X-Internal-Identity-Secret": SECRET,
     }
 
@@ -57,11 +58,12 @@ def interviewer_headers() -> dict[str, str]:
 @pytest.fixture
 def profile() -> dict[str, object]:
     return {
+        "full_name": "Jagadisha V",
         "headline": "Principal Backend Engineer",
         "company": "Example India",
         "job_title": "Principal Engineer",
         "experience_years": "12.5",
         "linkedin_url": "https://linkedin.com/in/interviewer",
         "github_url": "https://github.com/interviewer",
-        "bio": "Backend and distributed systems interviewer.",
+        "bio": "Backend and distributed systems interviewer with practical mentoring experience.",
     }

@@ -1,17 +1,26 @@
-from datetime import UTC, datetime
+import hashlib
+import hmac
+import re
+import secrets
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import phonenumbers
 from app.api.schemas import (
     BlockoutCreateRequest,
+    ChallengeResponse,
     EvidenceInput,
     ProfileUpsertRequest,
     SkillReplaceRequest,
     VerificationReviewRequest,
     WeeklyRulesReplaceRequest,
 )
+from app.config import Settings
 from app.domain.models import (
     AvailabilityBlockout,
+    ContactVerificationChallenge,
     EvidenceStatus,
+    InterviewerContactVerification,
     InterviewerProfile,
     InterviewerSkill,
     InterviewerVerification,
@@ -26,6 +35,8 @@ from app.domain.models import (
     WeeklyAvailabilityRule,
     utc_now,
 )
+from app.infrastructure.contact_verification import DevelopmentContactVerificationProvider
+from pydantic import ValidationError
 from roundready_common.correlation import get_correlation_id
 from roundready_common.errors import ServiceError
 from sqlalchemy import delete, select
@@ -34,8 +45,237 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 
 class InterviewerService:
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, settings: Settings | None = None) -> None:
         self._session = session
+        self._settings = settings
+
+    async def contact_verification(
+        self,
+        user_id: UUID,
+        account_email: str | None = None,
+        account_email_verified: bool | None = None,
+    ) -> dict[str, object]:
+        await self.get_profile(user_id)
+        if account_email_verified is not None:
+            await self._set_ownership_check(
+                user_id, VerificationCheckType.EMAIL_VERIFIED, account_email_verified
+            )
+            await self._session.commit()
+        contact = await self._session.get(InterviewerContactVerification, user_id)
+        check = await self._session.scalar(
+            select(VerificationCheck).where(
+                VerificationCheck.interviewer_id == user_id,
+                VerificationCheck.check_type == VerificationCheckType.EMAIL_VERIFIED,
+            )
+        )
+        return {
+            "account_email": account_email,
+            "account_email_verified": bool(check and check.passed),
+            "mobile_e164": contact.mobile_e164 if contact else None,
+            "mobile_verified": bool(contact and contact.mobile_verified_at),
+            "company_email": contact.company_email if contact else None,
+            "company_email_verified": bool(contact and contact.company_email_verified_at),
+        }
+
+    async def request_mobile_verification(self, user_id: UUID, mobile: str) -> ChallengeResponse:
+        try:
+            parsed = phonenumbers.parse(mobile, None)
+        except phonenumbers.NumberParseException as exc:
+            raise ServiceError(
+                code="invalid_mobile", message="Enter a valid mobile number", status_code=422
+            ) from exc
+        if not phonenumbers.is_valid_number(parsed):
+            raise ServiceError(
+                code="invalid_mobile", message="Enter a valid mobile number", status_code=422
+            )
+        canonical = phonenumbers.format_number(parsed, phonenumbers.PhoneNumberFormat.E164)
+        if canonical.startswith("+91") and not re.fullmatch(r"\+91[6-9]\d{9}", canonical):
+            raise ServiceError(
+                code="invalid_mobile", message="Enter a valid Indian mobile number", status_code=422
+            )
+        contact = await self._contact(user_id)
+        if contact.mobile_e164 != canonical:
+            contact.mobile_e164 = canonical
+            contact.mobile_verified_at = None
+            await self._set_ownership_check(user_id, VerificationCheckType.MOBILE_VERIFIED, False)
+        return await self._create_challenge(user_id, "mobile", canonical)
+
+    async def request_company_email_verification(
+        self, user_id: UUID, company_email: str
+    ) -> ChallengeResponse:
+        contact = await self._contact(user_id)
+        normalized = company_email.strip().casefold()
+        if contact.company_email != normalized:
+            contact.company_email = normalized
+            contact.company_email_verified_at = None
+            await self._set_ownership_check(
+                user_id, VerificationCheckType.COMPANY_EMAIL_VERIFIED, False
+            )
+        return await self._create_challenge(user_id, "company_email", normalized)
+
+    async def verify_contact_challenge(
+        self, user_id: UUID, challenge_id: UUID, secret_value: str
+    ) -> dict[str, object]:
+        now = datetime.now(UTC)
+        challenge = await self._session.scalar(
+            select(ContactVerificationChallenge)
+            .where(
+                ContactVerificationChallenge.id == challenge_id,
+                ContactVerificationChallenge.interviewer_id == user_id,
+            )
+            .with_for_update()
+        )
+        if challenge is None or challenge.consumed_at is not None:
+            raise ServiceError(
+                code="invalid_verification_challenge",
+                message="Verification code or link is invalid",
+                status_code=422,
+            )
+        settings = self._contact_settings()
+        if challenge.expires_at <= now:
+            raise ServiceError(
+                code="verification_challenge_expired",
+                message="Verification code or link has expired",
+                status_code=422,
+            )
+        if challenge.attempt_count >= settings.contact_max_attempts:
+            raise ServiceError(
+                code="verification_attempts_exhausted",
+                message="Too many verification attempts",
+                status_code=429,
+            )
+        challenge.attempt_count += 1
+        supplied = self._secret_hash(user_id, challenge.kind, secret_value)
+        if not hmac.compare_digest(supplied, challenge.secret_hash):
+            await self._session.commit()
+            raise ServiceError(
+                code="invalid_verification_challenge",
+                message="Verification code or link is invalid",
+                status_code=422,
+            )
+        contact = await self._contact(user_id)
+        fingerprint = self._fingerprint(
+            contact.mobile_e164 if challenge.kind == "mobile" else contact.company_email
+        )
+        if not hmac.compare_digest(fingerprint, challenge.target_fingerprint):
+            raise ServiceError(
+                code="verification_target_changed",
+                message="Contact value changed; request a new verification",
+                status_code=409,
+            )
+        challenge.consumed_at = now
+        if challenge.kind == "mobile":
+            contact.mobile_verified_at = now
+            await self._set_ownership_check(user_id, VerificationCheckType.MOBILE_VERIFIED, True)
+        else:
+            contact.company_email_verified_at = now
+            await self._set_ownership_check(
+                user_id, VerificationCheckType.COMPANY_EMAIL_VERIFIED, True
+            )
+        await self._session.commit()
+        return await self.contact_verification(user_id)
+
+    async def _contact(self, user_id: UUID) -> InterviewerContactVerification:
+        await self.get_profile(user_id)
+        contact = await self._session.get(InterviewerContactVerification, user_id)
+        if contact is None:
+            contact = InterviewerContactVerification(interviewer_id=user_id)
+            self._session.add(contact)
+            await self._session.flush()
+        return contact
+
+    async def _create_challenge(self, user_id: UUID, kind: str, target: str) -> ChallengeResponse:
+        settings = self._contact_settings()
+        if settings.environment != "development":
+            raise ServiceError(
+                code="contact_verification_provider_unavailable",
+                message="Contact verification delivery is not configured",
+                status_code=503,
+            )
+        now = datetime.now(UTC)
+        latest = await self._session.scalar(
+            select(ContactVerificationChallenge)
+            .where(
+                ContactVerificationChallenge.interviewer_id == user_id,
+                ContactVerificationChallenge.kind == kind,
+                ContactVerificationChallenge.consumed_at.is_(None),
+            )
+            .order_by(ContactVerificationChallenge.created_at.desc())
+            .limit(1)
+        )
+        if latest and latest.resend_available_at > now:
+            raise ServiceError(
+                code="verification_resend_cooldown",
+                message="Wait before requesting another verification",
+                status_code=429,
+            )
+        if latest:
+            latest.consumed_at = now
+        secret_value = (
+            f"{secrets.randbelow(1_000_000):06d}" if kind == "mobile" else secrets.token_urlsafe(32)
+        )
+        challenge = ContactVerificationChallenge(
+            interviewer_id=user_id,
+            kind=kind,
+            target_fingerprint=self._fingerprint(target),
+            secret_hash=self._secret_hash(user_id, kind, secret_value),
+            expires_at=now + timedelta(seconds=settings.contact_challenge_ttl_seconds),
+            resend_available_at=now + timedelta(seconds=settings.contact_resend_cooldown_seconds),
+        )
+        self._session.add(challenge)
+        await self._session.commit()
+        await self._session.refresh(challenge)
+        provider = DevelopmentContactVerificationProvider()
+        development_secret = (
+            await provider.deliver_mobile_code(target, secret_value)
+            if kind == "mobile"
+            else await provider.deliver_company_email_token(target, secret_value)
+        )
+        return ChallengeResponse(
+            challenge_id=challenge.id,
+            expires_at=challenge.expires_at,
+            resend_available_at=challenge.resend_available_at,
+            development_secret=development_secret,
+        )
+
+    async def _set_ownership_check(
+        self, user_id: UUID, check_type: VerificationCheckType, passed: bool
+    ) -> None:
+        await self._session.execute(
+            insert(VerificationCheck)
+            .values(
+                interviewer_id=user_id,
+                check_type=check_type.value,
+                passed=passed,
+                reviewed_by=None,
+                reviewed_at=datetime.now(UTC),
+            )
+            .on_conflict_do_update(
+                constraint="uq_verification_check_type",
+                set_={"passed": passed, "reviewed_by": None, "reviewed_at": datetime.now(UTC)},
+            )
+        )
+        self._add_event(
+            "interviewer.contact_verification.changed.v1",
+            {
+                "interviewer_id": str(user_id),
+                "check_type": check_type.value,
+                "state": "verified" if passed else "pending",
+            },
+        )
+
+    def _contact_settings(self) -> Settings:
+        if self._settings is None:
+            raise RuntimeError("contact verification settings are required")
+        return self._settings
+
+    def _secret_hash(self, user_id: UUID, kind: str, value: str) -> str:
+        key = self._contact_settings().contact_verification_secret.get_secret_value().encode()
+        return hmac.new(key, f"{user_id}:{kind}:{value}".encode(), hashlib.sha256).hexdigest()
+
+    def _fingerprint(self, value: str | None) -> str:
+        key = self._contact_settings().contact_verification_secret.get_secret_value().encode()
+        return hmac.new(key, (value or "").encode(), hashlib.sha256).hexdigest()
 
     async def get_profile(self, user_id: UUID) -> InterviewerProfile:
         profile = await self._session.get(InterviewerProfile, user_id)
@@ -65,6 +305,40 @@ class InterviewerService:
 
     async def submit_verification(self, user_id: UUID) -> InterviewerProfile:
         profile = await self._locked_profile(user_id)
+        try:
+            ProfileUpsertRequest.model_validate(
+                {field: getattr(profile, field) for field in ProfileUpsertRequest.model_fields}
+            )
+        except ValidationError as exc:
+            fields = sorted({str(error["loc"][0]) for error in exc.errors()})
+            raise ServiceError(
+                code="profile_incomplete",
+                message="Complete all required professional profile fields before verification",
+                status_code=409,
+                details={"fields": fields},
+            ) from exc
+        passed_contact_checks = set(
+            (
+                await self._session.scalars(
+                    select(VerificationCheck.check_type).where(
+                        VerificationCheck.interviewer_id == user_id,
+                        VerificationCheck.passed.is_(True),
+                    )
+                )
+            ).all()
+        )
+        required_contact_checks = {
+            VerificationCheckType.EMAIL_VERIFIED.value,
+            VerificationCheckType.MOBILE_VERIFIED.value,
+            VerificationCheckType.COMPANY_EMAIL_VERIFIED.value,
+        }
+        if not required_contact_checks <= passed_contact_checks:
+            raise ServiceError(
+                code="contact_verification_incomplete",
+                message="Complete all required contact verification before submission",
+                status_code=409,
+                details={"checks": sorted(required_contact_checks - passed_contact_checks)},
+            )
         if profile.verification_status not in {
             VerificationStatus.PENDING,
             VerificationStatus.REJECTED,
@@ -178,6 +452,16 @@ class InterviewerService:
         verification = await self._verification(user_id)
         now = datetime.now(UTC)
         for check_type, passed in request.checks.items():
+            if check_type in {
+                VerificationCheckType.EMAIL_VERIFIED,
+                VerificationCheckType.MOBILE_VERIFIED,
+                VerificationCheckType.COMPANY_EMAIL_VERIFIED,
+            }:
+                raise ServiceError(
+                    code="ownership_check_not_admin_editable",
+                    message="Contact ownership checks require their verification flow",
+                    status_code=403,
+                )
             statement = (
                 insert(VerificationCheck)
                 .values(
@@ -269,13 +553,17 @@ class InterviewerService:
                 ).all()
             )
             required = {
+                VerificationCheckType.EMAIL_VERIFIED.value,
+                VerificationCheckType.MOBILE_VERIFIED.value,
+                VerificationCheckType.LINKEDIN_REVIEWED.value,
+                VerificationCheckType.COMPANY_EMAIL_VERIFIED.value,
                 VerificationCheckType.PROFESSIONAL_EVIDENCE_REVIEWED.value,
                 VerificationCheckType.SCREENING_CALL_PASSED.value,
             }
             if not required <= passed_checks:
                 raise ServiceError(
                     code="verification_checks_incomplete",
-                    message="Professional evidence review and screening pass are required",
+                    message="All required ownership and professional checks must pass",
                     status_code=409,
                 )
         if request.action in {"reject", "request_more_evidence", "suspend"} and not request.reason:
@@ -341,13 +629,12 @@ class InterviewerService:
         return {
             "interviewer_id": user_id,
             "roundready_verified": True,
-            "contact_verified": bool(
-                {
-                    VerificationCheckType.EMAIL_VERIFIED.value,
-                    VerificationCheckType.MOBILE_VERIFIED.value,
-                }
-                & passed
-            ),
+            "contact_verified": {
+                VerificationCheckType.EMAIL_VERIFIED.value,
+                VerificationCheckType.MOBILE_VERIFIED.value,
+                VerificationCheckType.COMPANY_EMAIL_VERIFIED.value,
+            }
+            <= passed,
             "professional_experience_reviewed": (
                 VerificationCheckType.PROFESSIONAL_EVIDENCE_REVIEWED.value in passed
             ),
@@ -377,6 +664,7 @@ class InterviewerService:
         trust = await self.candidate_trust(user_id)
         return {
             "interviewer_id": user_id,
+            "full_name": profile.full_name,
             "headline": profile.headline,
             "job_title": profile.job_title,
             "experience_years": profile.experience_years,
@@ -582,13 +870,17 @@ class InterviewerService:
                 ).all()
             )
             required = {
+                VerificationCheckType.EMAIL_VERIFIED.value,
+                VerificationCheckType.MOBILE_VERIFIED.value,
+                VerificationCheckType.LINKEDIN_REVIEWED.value,
+                VerificationCheckType.COMPANY_EMAIL_VERIFIED.value,
                 VerificationCheckType.PROFESSIONAL_EVIDENCE_REVIEWED.value,
                 VerificationCheckType.SCREENING_CALL_PASSED.value,
             }
             if not required <= passed:
                 raise ServiceError(
                     code="verification_checks_incomplete",
-                    message="Professional evidence review and screening pass are required",
+                    message="All required ownership and professional checks must pass",
                     status_code=409,
                 )
         profile.verification_status = target

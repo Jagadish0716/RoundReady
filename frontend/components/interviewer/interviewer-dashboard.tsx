@@ -6,10 +6,11 @@ import { useEffect, useState } from "react";
 import { VerificationStatusCard } from "@/components/interviewer/verification-status";
 import { useAuth } from "@/components/providers/auth-provider";
 import * as api from "@/lib/api/interviewer";
+import { isInterviewerProfileComplete } from "@/lib/interviewer-profile";
 import type { InterviewerProfile } from "@/types/interviewer";
 
 export function InterviewerDashboard() {
-  const { request, state } = useAuth();
+  const { request } = useAuth();
   const [profile, setProfile] = useState<InterviewerProfile | null>(null);
   const [completion, setCompletion] = useState(0);
   useEffect(() => {
@@ -21,13 +22,7 @@ export function InterviewerDashboard() {
       .then(([loaded, skills, rules]) => {
         setProfile(loaded);
         const fields = [
-          loaded.headline,
-          loaded.company,
-          loaded.job_title,
-          Number(loaded.experience_years) > 0,
-          loaded.linkedin_url,
-          loaded.github_url,
-          loaded.bio,
+          isInterviewerProfileComplete(loaded),
           skills.length > 0,
           rules.length > 0,
         ];
@@ -37,10 +32,7 @@ export function InterviewerDashboard() {
       })
       .catch(() => setProfile(null));
   }, [request]);
-  const name =
-    state.status === "authenticated"
-      ? state.session.user.email.split("@")[0]
-      : null;
+  const name = profile?.full_name?.trim().split(/\s+/)[0] ?? null;
   const cards = [
     [
       "Profile completion",

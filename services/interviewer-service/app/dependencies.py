@@ -22,6 +22,8 @@ class Role(StrEnum):
 class Identity:
     user_id: UUID
     role: Role
+    email: str | None = None
+    email_verified: bool = False
 
 
 DatabaseSession = Annotated[AsyncSession, Depends(get_db_session)]
@@ -32,6 +34,8 @@ async def get_identity(
     settings: AppSettings,
     authenticated_user_id: Annotated[str | None, Header(alias="X-User-ID")] = None,
     role: Annotated[str | None, Header(alias="X-User-Role")] = None,
+    email: Annotated[str | None, Header(alias="X-User-Email")] = None,
+    email_verified: Annotated[str | None, Header(alias="X-User-Email-Verified")] = None,
     internal_secret: Annotated[str | None, Header(alias="X-Internal-Identity-Secret")] = None,
 ) -> Identity:
     expected = settings.internal_identity_secret.get_secret_value()
@@ -46,7 +50,12 @@ async def get_identity(
             status_code=401,
         )
     try:
-        return Identity(UUID(authenticated_user_id or ""), Role(role or ""))
+        return Identity(
+            UUID(authenticated_user_id or ""),
+            Role(role or ""),
+            email,
+            email_verified == "true",
+        )
     except ValueError as exc:
         raise ServiceError(
             code="invalid_internal_identity",

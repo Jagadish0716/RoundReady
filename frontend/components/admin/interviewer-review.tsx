@@ -10,6 +10,7 @@ import {
   getVerificationDetail,
   reviewVerification,
 } from "@/lib/api/interviewer";
+import { isInterviewerProfileComplete } from "@/lib/interviewer-profile";
 import type {
   InterviewerProfile,
   VerificationDetail,
@@ -32,6 +33,7 @@ export function InterviewerReview() {
   const [detail, setDetail] = useState<VerificationDetail | null>(null);
   const [reason, setReason] = useState("");
   const [professionalReviewed, setProfessionalReviewed] = useState(false);
+  const [linkedinReviewed, setLinkedinReviewed] = useState(false);
   const [screeningPassed, setScreeningPassed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeAction, setActiveAction] = useState<Action | null>(null);
@@ -112,6 +114,7 @@ export function InterviewerReview() {
       if (needsReason) body.reason = reason.trim();
       if (action === "verify") {
         body.checks = {
+          linkedin_reviewed: linkedinReviewed,
           professional_evidence_reviewed: professionalReviewed,
           screening_call_passed: screeningPassed,
         };
@@ -184,14 +187,25 @@ export function InterviewerReview() {
                     setSelectedId(profile.user_id);
                     setReason("");
                     setProfessionalReviewed(false);
+                    setLinkedinReviewed(false);
                     setScreeningPassed(false);
                     setError(null);
                   }}
                 >
-                  <span className="block font-medium">{profile.headline}</span>
+                  <span className="block font-medium">
+                    {profile.full_name || "Name not provided"}
+                  </span>
+                  <span className="block text-sm text-slate-600">
+                    {profile.headline}
+                  </span>
                   <span className="text-xs text-slate-500 uppercase">
                     {profile.verification_status.replace("_", " ")}
                   </span>
+                  {!isInterviewerProfileComplete(profile) && (
+                    <span className="block text-xs font-medium text-amber-700">
+                      Profile incomplete
+                    </span>
+                  )}
                 </button>
               </li>
             ))}
@@ -199,10 +213,18 @@ export function InterviewerReview() {
           {selected && (
             <article className="space-y-4 rounded-lg border bg-white p-5">
               <div>
-                <h2 className="text-xl font-semibold">{selected.headline}</h2>
-                <p className="text-sm text-slate-600">
-                  Interviewer {selected.user_id}
+                <h2 className="text-xl font-semibold">
+                  {selected.full_name || "Name not provided"}
+                </h2>
+                <p className="font-medium text-slate-700">
+                  {selected.headline}
                 </p>
+                <p className="text-sm text-slate-600">ID: {selected.user_id}</p>
+                {!isInterviewerProfileComplete(selected) && (
+                  <p className="mt-1 text-sm font-medium text-amber-700">
+                    Profile incomplete
+                  </p>
+                )}
               </div>
               <dl className="grid gap-3 text-sm sm:grid-cols-2">
                 <div>
@@ -248,6 +270,23 @@ export function InterviewerReview() {
               )}
               {detail ? (
                 <div className="space-y-4 border-t pt-4 text-sm">
+                  <div>
+                    <h3 className="font-semibold">Contact ownership</h3>
+                    <p>
+                      Account email:{" "}
+                      {detail.account_email_verified ? "Verified" : "Pending"}
+                    </p>
+                    <p>
+                      Mobile:{" "}
+                      {detail.mobile_verified
+                        ? `Verified · ••••${detail.mobile_e164?.slice(-4) ?? ""}`
+                        : "Pending"}
+                    </p>
+                    <p>
+                      Company email:{" "}
+                      {detail.company_email_verified ? "Verified" : "Pending"}
+                    </p>
+                  </div>
                   <div>
                     <h3 className="font-semibold">Evidence checklist</h3>
                     {detail.evidence.length ? (
@@ -326,6 +365,16 @@ export function InterviewerReview() {
                   <label className="flex items-center gap-2">
                     <input
                       type="checkbox"
+                      checked={linkedinReviewed}
+                      onChange={(event) =>
+                        setLinkedinReviewed(event.target.checked)
+                      }
+                    />
+                    I reviewed the LinkedIn profile
+                  </label>
+                  <label className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
                       checked={professionalReviewed}
                       onChange={(event) =>
                         setProfessionalReviewed(event.target.checked)
@@ -352,6 +401,7 @@ export function InterviewerReview() {
                       disabled={
                         activeAction !== null ||
                         !professionalReviewed ||
+                        !linkedinReviewed ||
                         !screeningPassed
                       }
                       onClick={() => void perform("verify")}

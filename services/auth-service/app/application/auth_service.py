@@ -6,6 +6,7 @@ from app.api.schemas import LoginRequest, RegisterRequest, TokenResponse
 from app.config import Settings
 from app.domain.models import (
     Credential,
+    EmailVerificationChallenge,
     OutboxEvent,
     RefreshToken,
     RevokedAccessToken,
@@ -13,12 +14,15 @@ from app.domain.models import (
 from app.domain.security import (
     AccessClaims,
     JwtService,
+    generate_email_verification_token,
     generate_refresh_token,
+    hash_email_verification_token,
     hash_password,
     hash_refresh_token,
     password_needs_rehash,
     verify_password,
 )
+from app.infrastructure.email import EmailSender, email_sender
 from roundready_common.correlation import get_correlation_id
 from roundready_common.errors import ServiceError
 from sqlalchemy import select, update
@@ -33,10 +37,14 @@ class AuthenticatedIdentity:
 
 
 class AuthService:
-    def __init__(self, session: AsyncSession, settings: Settings) -> None:
+    def __init__(
+        self, session: AsyncSession, settings: Settings, sender: EmailSender | None = None
+    ) -> None:
         self._session = session
         self._settings = settings
         self._jwt = JwtService(settings)
+        self._email = sender or email_sender(settings)
+        self.development_verification_url: str | None = None
 
     async def register(self, request: RegisterRequest) -> Credential:
         credential = Credential(
@@ -53,6 +61,13 @@ class AuthService:
             )
         )
         try:
+            token, challenge = self._new_email_challenge(credential)
+            self._session.add(challenge)
+            await self._session.flush()
+            verification_url = self._verification_url(token, request.next)
+            await self._email.send_verification(
+                credential.email, verification_url, str(challenge.id)
+            )
             await self._session.commit()
         except IntegrityError as exc:
             await self._session.rollback()
@@ -62,6 +77,8 @@ class AuthService:
                 status_code=409,
             ) from exc
         await self._session.refresh(credential)
+        if self._settings.email_provider == "development":
+            self.development_verification_url = verification_url
         return credential
 
     async def login(self, request: LoginRequest) -> TokenResponse:
@@ -69,12 +86,122 @@ class AuthService:
         if credential is None or not verify_password(credential.password_hash, request.password):
             raise self._invalid_credentials()
         self._ensure_active(credential)
+        if not credential.email_verified:
+            raise ServiceError(
+                code="email_verification_required",
+                message="Verify your email before continuing.",
+                status_code=403,
+            )
         if password_needs_rehash(credential.password_hash):
             credential.password_hash = hash_password(request.password)
         response, refresh_record = self._new_token_pair(credential, family_id=uuid4())
         self._session.add(refresh_record)
         await self._session.commit()
         return response
+
+    async def resend_verification(self, email: str, next_url: str | None = None) -> None:
+        credential = await self._credential_by_email(email.strip().lower())
+        if credential is None or credential.email_verified:
+            return
+        now = datetime.now(UTC)
+        latest = await self._session.scalar(
+            select(EmailVerificationChallenge)
+            .where(EmailVerificationChallenge.credential_id == credential.id)
+            .order_by(EmailVerificationChallenge.created_at.desc())
+            .limit(1)
+        )
+        if (
+            latest
+            and latest.created_at
+            + timedelta(seconds=self._settings.email_verification_resend_cooldown_seconds)
+            > now
+        ):
+            return
+        await self._session.execute(
+            update(EmailVerificationChallenge)
+            .where(
+                EmailVerificationChallenge.credential_id == credential.id,
+                EmailVerificationChallenge.consumed_at.is_(None),
+            )
+            .values(consumed_at=now)
+        )
+        token, challenge = self._new_email_challenge(credential, now=now)
+        self._session.add(challenge)
+        await self._session.flush()
+        url = self._verification_url(token, next_url)
+        await self._email.send_verification(credential.email, url, str(challenge.id))
+        await self._session.commit()
+        self.development_verification_url = (
+            url if self._settings.email_provider == "development" else None
+        )
+
+    async def verify_email(self, raw_token: str) -> str:
+        now = datetime.now(UTC)
+        challenge = await self._session.scalar(
+            select(EmailVerificationChallenge)
+            .where(
+                EmailVerificationChallenge.token_hash == hash_email_verification_token(raw_token)
+            )
+            .with_for_update()
+        )
+        if challenge is None:
+            raise ServiceError(
+                code="invalid_verification_token",
+                message="Verification link is invalid",
+                status_code=400,
+            )
+        credential = await self._session.get(
+            Credential, challenge.credential_id, with_for_update=True
+        )
+        if credential is None or credential.email != challenge.email:
+            raise ServiceError(
+                code="invalid_verification_token",
+                message="Verification link is invalid",
+                status_code=400,
+            )
+        if challenge.consumed_at is not None:
+            if credential.email_verified:
+                return "already_verified"
+            raise ServiceError(
+                code="invalid_verification_token",
+                message="Verification link is invalid",
+                status_code=400,
+            )
+        if challenge.expires_at <= now:
+            raise ServiceError(
+                code="verification_token_expired",
+                message="Verification link has expired",
+                status_code=400,
+            )
+        challenge.consumed_at = now
+        if credential.email_verified_at is None:
+            credential.email_verified_at = now
+            self._session.add(self._event("auth.EmailVerified.v1", {"user_id": str(credential.id)}))
+        await self._session.commit()
+        return "verified"
+
+    def _new_email_challenge(
+        self, credential: Credential, *, now: datetime | None = None
+    ) -> tuple[str, EmailVerificationChallenge]:
+        created = now or datetime.now(UTC)
+        token = generate_email_verification_token()
+        return token, EmailVerificationChallenge(
+            id=uuid4(),
+            credential_id=credential.id,
+            email=credential.email,
+            token_hash=hash_email_verification_token(token),
+            created_at=created,
+            expires_at=created + timedelta(seconds=self._settings.email_verification_ttl_seconds),
+        )
+
+    def _verification_url(self, token: str, next_url: str | None = None) -> str:
+        from urllib.parse import quote
+
+        base = self._settings.frontend_base_url.rstrip("/")
+        url = f"{base}/verify-email?token={quote(token, safe='')}"
+        if next_url and next_url.startswith("/") and not next_url.startswith("//"):
+            url += f"&next={quote(next_url, safe='')}"
+        return url
 
     async def rotate_refresh_token(self, raw_token: str) -> TokenResponse:
         now = datetime.now(UTC)

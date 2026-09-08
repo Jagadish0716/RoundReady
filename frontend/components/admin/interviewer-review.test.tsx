@@ -20,6 +20,7 @@ vi.mock("@/components/providers/auth-provider", () => ({
 
 const profile: InterviewerProfile = {
   user_id: "11111111-1111-4111-8111-111111111111",
+  full_name: "Jagadisha V",
   headline: "Senior Backend Engineer",
   company: "RoundReady Labs",
   job_title: "Staff Engineer",
@@ -80,8 +81,11 @@ describe("InterviewerReview", () => {
   it("shows profile, evidence, screening and history to admins", async () => {
     render(<InterviewerReview />);
     expect(
-      await screen.findByRole("heading", { name: profile.headline }),
+      await screen.findByRole("heading", { name: profile.full_name! }),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: profile.user_id }),
+    ).not.toBeInTheDocument();
     expect(
       await screen.findByText("engineer@roundready.example"),
     ).toBeInTheDocument();
@@ -93,6 +97,7 @@ describe("InterviewerReview", () => {
     render(<InterviewerReview />);
     const approve = await screen.findByRole("button", { name: "Approve" });
     expect(approve).toBeDisabled();
+    fireEvent.click(screen.getByLabelText("I reviewed the LinkedIn profile"));
     fireEvent.click(
       screen.getByLabelText("I reviewed the professional evidence"),
     );
@@ -108,6 +113,7 @@ describe("InterviewerReview", () => {
         body: expect.objectContaining({
           action: "verify",
           checks: expect.objectContaining({
+            linkedin_reviewed: true,
             professional_evidence_reviewed: true,
           }),
           screening: expect.objectContaining({ screening_status: "passed" }),

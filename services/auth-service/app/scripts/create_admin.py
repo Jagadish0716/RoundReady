@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import getpass
 import os
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from email_validator import EmailNotValidError, validate_email
@@ -31,6 +32,7 @@ async def provision_admin(session: AsyncSession, email: str, password: str) -> P
             email=normalized_email,
             password_hash=hash_password(password),
             role=Role.ADMIN,
+            email_verified_at=datetime.now(UTC),
         )
     )
     await session.commit()

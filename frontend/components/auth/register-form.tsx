@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 
 import { authErrorMessage } from "@/components/auth/auth-error";
 import { PasswordField } from "@/components/auth/password-field";
@@ -14,7 +14,6 @@ import { validateRegistration } from "@/lib/auth/validation";
 import type { RegistrationRole } from "@/types/auth";
 
 export function RegisterForm() {
-  const router = useRouter();
   const search = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -25,6 +24,8 @@ export function RegisterForm() {
   );
   const [apiError, setApiError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null);
+  const [developmentUrl, setDevelopmentUrl] = useState<string | null>(null);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -34,15 +35,56 @@ export function RegisterForm() {
     if (Object.keys(validation).length) return;
     setSubmitting(true);
     try {
-      await authApi.register(email.trim(), password, role);
-      const requested = search.get("next");
-      const suffix = requested ? `&next=${encodeURIComponent(requested)}` : "";
-      router.replace(`/login?registered=1${suffix}`);
+      const result = await authApi.register(
+        email.trim(),
+        password,
+        role,
+        search.get("next"),
+      );
+      setRegisteredEmail(email.trim());
+      setDevelopmentUrl(result.developmentVerificationUrl);
     } catch (error) {
       setApiError(authErrorMessage(error, "register"));
     } finally {
       setSubmitting(false);
     }
+  }
+
+  if (registeredEmail) {
+    const requested = search.get("next");
+    const loginHref = requested
+      ? `/login?next=${encodeURIComponent(requested)}`
+      : "/login";
+    return (
+      <section className="mx-auto max-w-md space-y-5 text-center">
+        <h1 className="text-2xl font-semibold">Check your email</h1>
+        <p className="text-sm text-neutral-600">
+          We sent a verification link to your email address.
+        </p>
+        <Button
+          type="button"
+          onClick={() =>
+            void authApi.resendVerification(registeredEmail, requested)
+          }
+        >
+          Resend verification email
+        </Button>
+        {developmentUrl ? (
+          <a
+            className="block text-sm font-medium text-blue-700"
+            href={developmentUrl}
+          >
+            Open development verification link
+          </a>
+        ) : null}
+        <Link
+          className="block text-sm font-medium text-neutral-900"
+          href={loginHref}
+        >
+          Back to login
+        </Link>
+      </section>
+    );
   }
 
   return (

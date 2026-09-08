@@ -14,6 +14,7 @@ import { ApiClientError } from "@/lib/api/client";
 const mocks = vi.hoisted(() => ({
   login: vi.fn(),
   register: vi.fn(),
+  resendVerification: vi.fn(),
   replace: vi.fn(),
   requested: null as string | null,
 }));
@@ -27,7 +28,10 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/components/providers/auth-provider", () => ({
   useAuth: () => ({ login: mocks.login }),
 }));
-vi.mock("@/lib/auth/api", () => ({ register: mocks.register }));
+vi.mock("@/lib/auth/api", () => ({
+  register: mocks.register,
+  resendVerification: mocks.resendVerification,
+}));
 
 function completeLogin(): void {
   fireEvent.change(screen.getByLabelText("Email"), {
@@ -120,23 +124,54 @@ describe("authentication forms", () => {
     );
   });
 
-  it("registers and sends the user to login", async () => {
-    mocks.register.mockResolvedValue({ id: "user" });
+  it("shows check-email after candidate registration", async () => {
+    mocks.register.mockResolvedValue({
+      id: "user",
+      developmentVerificationUrl: null,
+    });
     render(<RegisterForm />);
     completeRegistration();
-    await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/login?registered=1"),
-    );
+    expect(await screen.findByText("Check your email")).toBeInTheDocument();
+    expect(screen.getByText("Back to login")).toHaveAttribute("href", "/login");
   });
 
   it("preserves booking context when sending a registered user to login", async () => {
     mocks.requested = "/candidate?slot=slot-1&interviewer=interviewer-1";
-    mocks.register.mockResolvedValue({ id: "user" });
+    mocks.register.mockResolvedValue({
+      id: "user",
+      developmentVerificationUrl: null,
+    });
     render(<RegisterForm />);
     completeRegistration();
+    expect(await screen.findByText("Back to login")).toHaveAttribute(
+      "href",
+      `/login?next=${encodeURIComponent(mocks.requested!)}`,
+    );
+  });
+
+  it("offers resend when verified credentials need email verification", async () => {
+    mocks.login.mockRejectedValue(
+      new ApiClientError(
+        "Verify",
+        403,
+        "forbidden",
+        "email_verification_required",
+        null,
+        null,
+      ),
+    );
+    render(<LoginForm />);
+    completeLogin();
+    expect(
+      await screen.findByText(/has not been verified/),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Resend verification email" }),
+    );
     await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith(
-        `/login?registered=1&next=${encodeURIComponent(mocks.requested!)}`,
+      expect(mocks.resendVerification).toHaveBeenCalledWith(
+        "user@example.com",
+        null,
       ),
     );
   });

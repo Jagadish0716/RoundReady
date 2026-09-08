@@ -15,19 +15,65 @@ def create_profile(
 
 
 def approve_interviewer(
-    client: TestClient, interviewer: dict[str, str], admin: dict[str, str]
+    client: TestClient,
+    interviewer: dict[str, str],
+    admin: dict[str, str],
+    postgres_url: str,
 ) -> None:
+    satisfy_contact_checks(client, interviewer, postgres_url)
     client.post("/v1/me/verification/submit", headers=interviewer)
     response = client.post(
         f"/v1/admin/interviewers/{interviewer['X-User-ID']}/verification/review",
         headers=admin,
         json={
             "action": "verify",
-            "checks": {"professional_evidence_reviewed": True},
+            "checks": {
+                "linkedin_reviewed": True,
+                "professional_evidence_reviewed": True,
+            },
             "screening": {"screening_status": "passed", "overall_result": "passed"},
         },
     )
     assert response.status_code == 200
+
+
+def satisfy_contact_checks(
+    client: TestClient, interviewer: dict[str, str], postgres_url: str
+) -> None:
+    mobile = client.post(
+        "/v1/me/verification/mobile/request",
+        headers=interviewer,
+        json={"mobile": "+919876543210"},
+    ).json()
+    client.post(
+        "/v1/me/verification/mobile/verify",
+        headers=interviewer,
+        json={"challenge_id": mobile["challenge_id"], "secret": mobile["development_secret"]},
+    )
+    company = client.post(
+        "/v1/me/verification/company-email/request",
+        headers=interviewer,
+        json={"company_email": "engineer@company.example"},
+    ).json()
+    client.post(
+        "/v1/me/verification/company-email/verify",
+        headers=interviewer,
+        json={
+            "challenge_id": company["challenge_id"],
+            "secret": company["development_secret"],
+        },
+    )
+    with (
+        psycopg.connect(postgres_url.replace("postgresql+psycopg", "postgresql")) as connection,
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            "INSERT INTO interviewer_verification_checks "
+            "(id, interviewer_id, check_type, passed) VALUES (gen_random_uuid(), %s, "
+            "'email_verified', true) ON CONFLICT (interviewer_id, check_type) "
+            "DO UPDATE SET passed = true",
+            (interviewer["X-User-ID"],),
+        )
 
 
 def test_empty_public_interviewer_collection_returns_ok(client: TestClient) -> None:
@@ -37,13 +83,15 @@ def test_empty_public_interviewer_collection_returns_ok(client: TestClient) -> N
 
 
 def test_anonymous_public_discovery_returns_only_verified_safe_data(
-    client: TestClient, profile: dict[str, object]
+    client: TestClient, profile: dict[str, object], postgres_url: str
 ) -> None:
     admin = headers("admin")
     verified, pending, under_review, rejected, suspended = (headers() for _ in range(5))
     for identity in (verified, pending, under_review, rejected, suspended):
         create_profile(client, identity, profile)
-    approve_interviewer(client, verified, admin)
+    approve_interviewer(client, verified, admin, postgres_url)
+    satisfy_contact_checks(client, under_review, postgres_url)
+    satisfy_contact_checks(client, rejected, postgres_url)
     client.post("/v1/me/verification/submit", headers=under_review)
     client.post("/v1/me/verification/submit", headers=rejected)
     client.post(
@@ -51,7 +99,7 @@ def test_anonymous_public_discovery_returns_only_verified_safe_data(
         headers=admin,
         json={"reason": "Not approved"},
     )
-    approve_interviewer(client, suspended, admin)
+    approve_interviewer(client, suspended, admin, postgres_url)
     client.post(
         f"/v1/admin/interviewers/{suspended['X-User-ID']}/suspend",
         headers=admin,
@@ -71,6 +119,7 @@ def test_anonymous_public_discovery_returns_only_verified_safe_data(
     )
     public = client.get(f"/v1/public/interviewers/{verified['X-User-ID']}")
     assert public.status_code == 200
+    assert public.json()["full_name"] == profile["full_name"]
     assert public.json()["price_paise"] == 20000
     assert public.json()["roundready_verified"] is True
     assert public.json()["interview_languages"] == ["English"]
@@ -112,6 +161,175 @@ def test_profile_ownership_and_read_only_reliability(
     assert tamper.status_code == 422
 
 
+def test_legacy_incomplete_profile_is_readable_but_cannot_submit_verification(
+    client: TestClient, profile: dict[str, object], postgres_url: str
+) -> None:
+    interviewer = headers()
+    create_profile(client, interviewer, profile)
+    with (
+        psycopg.connect(postgres_url.replace("postgresql+psycopg", "postgresql")) as connection,
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            "UPDATE interviewer_profiles SET company = NULL WHERE user_id = %s",
+            (interviewer["X-User-ID"],),
+        )
+    readable = client.get("/v1/me/profile", headers=interviewer)
+    assert readable.status_code == 200
+    assert readable.json()["company"] is None
+    submitted = client.post("/v1/me/verification/submit", headers=interviewer)
+    assert submitted.status_code == 409
+    assert submitted.json()["error"] == {
+        "code": "profile_incomplete",
+        "message": "Complete all required professional profile fields before verification",
+        "details": {"fields": ["company"]},
+    }
+
+
+def test_mobile_and_company_contact_challenges_are_ownership_bound_and_one_time(
+    client: TestClient, profile: dict[str, object], postgres_url: str
+) -> None:
+    interviewer = headers()
+    create_profile(client, interviewer, profile)
+    initial = client.get("/v1/me/verification", headers=interviewer).json()
+    assert initial["account_email"] == interviewer["X-User-Email"]
+    assert initial["account_email_verified"] is False
+
+    invalid = client.post(
+        "/v1/me/verification/mobile/request",
+        headers=interviewer,
+        json={"mobile": "+911234567890"},
+    )
+    assert invalid.status_code == 422
+    mobile = client.post(
+        "/v1/me/verification/mobile/request",
+        headers=interviewer,
+        json={"mobile": "+919876543210"},
+    )
+    assert mobile.status_code == 200
+    mobile_challenge = mobile.json()
+    assert mobile_challenge["development_secret"].isdigit()
+    assert (
+        client.post(
+            "/v1/me/verification/mobile/request",
+            headers=interviewer,
+            json={"mobile": "+919876543210"},
+        ).status_code
+        == 429
+    )
+    wrong = client.post(
+        "/v1/me/verification/mobile/verify",
+        headers=interviewer,
+        json={"challenge_id": mobile_challenge["challenge_id"], "secret": "000000"},
+    )
+    assert wrong.status_code == 422
+    verified = client.post(
+        "/v1/me/verification/mobile/verify",
+        headers=interviewer,
+        json={
+            "challenge_id": mobile_challenge["challenge_id"],
+            "secret": mobile_challenge["development_secret"],
+        },
+    )
+    assert verified.status_code == 200
+    assert verified.json()["mobile_verified"] is True
+    assert verified.json()["mobile_e164"] == "+919876543210"
+    assert (
+        client.post(
+            "/v1/me/verification/mobile/verify",
+            headers=interviewer,
+            json={
+                "challenge_id": mobile_challenge["challenge_id"],
+                "secret": mobile_challenge["development_secret"],
+            },
+        ).status_code
+        == 422
+    )
+
+    company = client.post(
+        "/v1/me/verification/company-email/request",
+        headers=interviewer,
+        json={"company_email": "jagadisha@amazon.com"},
+    ).json()
+    company_verified = client.post(
+        "/v1/me/verification/company-email/verify",
+        headers=interviewer,
+        json={
+            "challenge_id": company["challenge_id"],
+            "secret": company["development_secret"],
+        },
+    )
+    assert company_verified.status_code == 200
+    assert company_verified.json()["company_email_verified"] is True
+    changed = client.post(
+        "/v1/me/verification/company-email/request",
+        headers=interviewer,
+        json={"company_email": "jagadisha@microsoft.com"},
+    )
+    assert changed.status_code == 200
+    changed_challenge = changed.json()
+    with (
+        psycopg.connect(postgres_url.replace("postgresql+psycopg", "postgresql")) as connection,
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            "UPDATE contact_verification_challenges "
+            "SET expires_at = now() - interval '1 second' WHERE id = %s",
+            (changed_challenge["challenge_id"],),
+        )
+    expired = client.post(
+        "/v1/me/verification/company-email/verify",
+        headers=interviewer,
+        json={
+            "challenge_id": changed_challenge["challenge_id"],
+            "secret": changed_challenge["development_secret"],
+        },
+    )
+    assert expired.status_code == 422
+    assert expired.json()["error"]["code"] == "verification_challenge_expired"
+    refreshed = client.get("/v1/me/verification", headers=interviewer).json()
+    assert refreshed["company_email_verified"] is False
+    assert refreshed["mobile_verified"] is True
+    with (
+        psycopg.connect(postgres_url.replace("postgresql+psycopg", "postgresql")) as connection,
+        connection.cursor() as cursor,
+    ):
+        cursor.execute(
+            "SELECT payload::text FROM outbox_events "
+            "WHERE event_type = 'interviewer.contact_verification.changed.v1'"
+        )
+        payloads = [row[0] for row in cursor.fetchall()]
+    assert payloads
+    assert not any(
+        value in payload
+        for payload in payloads
+        for value in ["9876543210", "amazon.com", "microsoft.com", "secret", "token"]
+    )
+
+    limited = headers()
+    create_profile(client, limited, profile)
+    limited_challenge = client.post(
+        "/v1/me/verification/mobile/request",
+        headers=limited,
+        json={"mobile": "+919999999999"},
+    ).json()
+    for _ in range(5):
+        assert (
+            client.post(
+                "/v1/me/verification/mobile/verify",
+                headers=limited,
+                json={"challenge_id": limited_challenge["challenge_id"], "secret": "000000"},
+            ).status_code
+            == 422
+        )
+    exhausted = client.post(
+        "/v1/me/verification/mobile/verify",
+        headers=limited,
+        json={"challenge_id": limited_challenge["challenge_id"], "secret": "000000"},
+    )
+    assert exhausted.status_code == 429
+
+
 def test_skills_are_owned_and_replaceable(
     client: TestClient, interviewer_headers: dict[str, str], profile: dict[str, object]
 ) -> None:
@@ -143,6 +361,7 @@ def test_verification_approve_suspend_reactivate_and_events(
     interviewer, admin = headers(), headers("admin")
     created = create_profile(client, interviewer, profile)
     user_id = created["user_id"]
+    satisfy_contact_checks(client, interviewer, postgres_url)
     assert (
         client.post("/v1/me/verification/submit", headers=interviewer).json()["verification_status"]
         == "under_review"
@@ -154,7 +373,10 @@ def test_verification_approve_suspend_reactivate_and_events(
         headers=admin,
         json={
             "action": "verify",
-            "checks": {"professional_evidence_reviewed": True},
+            "checks": {
+                "linkedin_reviewed": True,
+                "professional_evidence_reviewed": True,
+            },
             "screening": {
                 "screening_status": "passed",
                 "communication_assessment": "Clear communication",
@@ -203,12 +425,13 @@ def test_admin_interviewer_discovery_is_role_protected_and_filterable(
 
 
 def test_rejection_requires_reason_and_valid_transition(
-    client: TestClient, profile: dict[str, object]
+    client: TestClient, profile: dict[str, object], postgres_url: str
 ) -> None:
     interviewer, admin = headers(), headers("admin")
     user_id = create_profile(client, interviewer, profile)["user_id"]
     invalid = client.post(f"/v1/admin/interviewers/{user_id}/approve", headers=admin)
     assert invalid.status_code == 409
+    satisfy_contact_checks(client, interviewer, postgres_url)
     client.post("/v1/me/verification/submit", headers=interviewer)
     missing = client.post(f"/v1/admin/interviewers/{user_id}/reject", headers=admin, json={})
     assert missing.status_code == 422
@@ -221,7 +444,7 @@ def test_rejection_requires_reason_and_valid_transition(
 
 
 def test_layered_evidence_is_private_and_candidate_trust_is_safe(
-    client: TestClient, profile: dict[str, object]
+    client: TestClient, profile: dict[str, object], postgres_url: str
 ) -> None:
     interviewer, other, admin = headers(), headers(), headers("admin")
     user_id = create_profile(client, interviewer, profile)["user_id"]
@@ -236,6 +459,7 @@ def test_layered_evidence_is_private_and_candidate_trust_is_safe(
     assert evidence.status_code == 200
     assert evidence.json()["evidence"][0]["status"] == "pending"
     assert client.get("/v1/me/verification", headers=other).status_code == 404
+    satisfy_contact_checks(client, interviewer, postgres_url)
     client.post("/v1/me/verification/submit", headers=interviewer)
     reviewed = client.post(
         f"/v1/admin/interviewers/{user_id}/verification/review",
@@ -243,7 +467,7 @@ def test_layered_evidence_is_private_and_candidate_trust_is_safe(
         json={
             "action": "verify",
             "checks": {
-                "email_verified": True,
+                "linkedin_reviewed": True,
                 "professional_evidence_reviewed": True,
             },
             "evidence_statuses": {evidence.json()["evidence"][0]["id"]: "verified"},

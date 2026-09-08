@@ -49,6 +49,14 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
+def generate_email_verification_token() -> str:
+    return secrets.token_urlsafe(48)
+
+
+def hash_email_verification_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
 class JwtService:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings

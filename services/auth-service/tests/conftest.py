@@ -2,6 +2,7 @@ import os
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from alembic import command
@@ -52,7 +53,7 @@ def register_user(client: TestClient) -> Any:
     counter = 0
 
     def register(
-        *, role: str = "candidate", password: str = "CorrectHorseBattery1!"
+        *, role: str = "candidate", password: str = "CorrectHorseBattery1!", verified: bool = True
     ) -> dict[str, Any]:
         nonlocal counter
         counter += 1
@@ -65,6 +66,11 @@ def register_user(client: TestClient) -> Any:
             },
         )
         assert response.status_code == 201, response.text
+        if verified:
+            url = response.json()["development_verification_url"]
+            token = parse_qs(urlparse(url).query)["token"][0]
+            verify = client.post("/v1/auth/verify-email", json={"token": token})
+            assert verify.status_code == 200, verify.text
         return {**response.json(), "password": password}
 
     return register

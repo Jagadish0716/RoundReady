@@ -4,6 +4,8 @@ from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from roundready_common.config import Environment, is_production, require_secret, require_url
 
+LOCAL_CONTACT_SECRET = "roundready-local-contact-verification"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
@@ -26,6 +28,13 @@ class Settings(BaseSettings):
     internal_identity_secret: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_IDENTITY_SECRET"
     )
+    contact_verification_secret: SecretStr = Field(
+        default=SecretStr(LOCAL_CONTACT_SECRET),
+        validation_alias="CONTACT_VERIFICATION_SECRET",
+    )
+    contact_challenge_ttl_seconds: int = Field(default=300, ge=60, le=900)
+    contact_resend_cooldown_seconds: int = Field(default=60, ge=10, le=600)
+    contact_max_attempts: int = Field(default=5, ge=1, le=10)
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
     rabbitmq_exchange: str = Field(
         default="roundready.events", validation_alias="RABBITMQ_EXCHANGE"
@@ -50,6 +59,9 @@ class Settings(BaseSettings):
         )
         require_url("RABBITMQ_URL", self.rabbitmq_url, schemes={"amqp", "amqps"}, credentials=True)
         require_secret("INTERNAL_IDENTITY_SECRET", self.internal_identity_secret)
+        require_secret("CONTACT_VERIFICATION_SECRET", self.contact_verification_secret)
+        if self.contact_verification_secret.get_secret_value() == LOCAL_CONTACT_SECRET:
+            raise ValueError("CONTACT_VERIFICATION_SECRET must be replaced in production")
         return self
 
 

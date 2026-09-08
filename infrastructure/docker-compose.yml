@@ -109,6 +109,14 @@ services:
       JWT_AUDIENCE: ${JWT_AUDIENCE:-roundready-api}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
       RABBITMQ_EXCHANGE: ${RABBITMQ_EXCHANGE:-roundready.events}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:3000}
+      EMAIL_PROVIDER: ${EMAIL_PROVIDER:-development}
+      EMAIL_VERIFICATION_TTL_SECONDS: ${EMAIL_VERIFICATION_TTL_SECONDS:-3600}
+      EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS: ${EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS:-60}
+      RESEND_API_BASE_URL: ${RESEND_API_BASE_URL:-https://api.resend.com}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
+      PROVIDER_TIMEOUT_SECONDS: ${PROVIDER_TIMEOUT_SECONDS:-10}
     depends_on: {postgres: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
     healthcheck: &api-health
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready')"]
@@ -143,6 +151,7 @@ services:
       ENVIRONMENT: development
       INTERVIEWER_DATABASE_URL: postgresql+asyncpg://${INTERVIEWER_DB_USER:?}:${INTERVIEWER_DB_PASSWORD:?}@postgres:5432/${INTERVIEWER_DB_NAME:-roundready_interviewer}
       INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
+      CONTACT_VERIFICATION_SECRET: ${CONTACT_VERIFICATION_SECRET:-roundready-local-contact-verification-only}
       RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
     depends_on: {postgres: {condition: service_healthy}}
     healthcheck: *api-health

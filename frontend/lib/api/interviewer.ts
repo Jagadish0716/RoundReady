@@ -1,5 +1,6 @@
 import type { ApiRequestOptions } from "@/lib/api/client";
 import type {
+  ContactChallenge,
   Blockout,
   InterviewerProfile,
   InterviewerProfileInput,
@@ -66,6 +67,44 @@ export const saveVerificationEvidence = (
   });
 export const submitVerification = (request: AuthenticatedRequest) =>
   request<InterviewerProfile>(`${own}/verification/submit`, { method: "POST" });
+
+export const requestMobileVerification = (
+  request: AuthenticatedRequest,
+  mobile: string,
+) =>
+  request<ContactChallenge>(`${own}/verification/mobile/request`, {
+    method: "POST",
+    body: { mobile },
+  });
+
+export const verifyMobile = (
+  request: AuthenticatedRequest,
+  challengeId: string,
+  secret: string,
+) =>
+  request<VerificationDetail>(`${own}/verification/mobile/verify`, {
+    method: "POST",
+    body: { challenge_id: challengeId, secret },
+  });
+
+export const requestCompanyEmailVerification = (
+  request: AuthenticatedRequest,
+  companyEmail: string,
+) =>
+  request<ContactChallenge>(`${own}/verification/company-email/request`, {
+    method: "POST",
+    body: { company_email: companyEmail },
+  });
+
+export const verifyCompanyEmail = (
+  request: AuthenticatedRequest,
+  challengeId: string,
+  secret: string,
+) =>
+  request<VerificationDetail>(`${own}/verification/company-email/verify`, {
+    method: "POST",
+    body: { challenge_id: challengeId, secret },
+  });
 
 const admin = "/v1/interviewers/admin";
 

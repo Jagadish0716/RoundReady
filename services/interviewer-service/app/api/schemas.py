@@ -15,6 +15,7 @@ from app.domain.models import (
 from pydantic import (
     BaseModel,
     ConfigDict,
+    EmailStr,
     Field,
     HttpUrl,
     StringConstraints,
@@ -38,27 +39,34 @@ class Domain(StrEnum):
 class ProfileUpsertRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    full_name: Annotated[NonBlank, Field(min_length=2, max_length=100)]
     headline: Annotated[NonBlank, Field(max_length=180)]
-    company: Annotated[NonBlank, Field(max_length=160)] | None = None
-    job_title: Annotated[NonBlank, Field(max_length=160)] | None = None
-    experience_years: Decimal = Field(default=Decimal("0.0"), ge=0, le=60, decimal_places=1)
-    linkedin_url: HttpUrl | None = None
-    github_url: HttpUrl | None = None
-    bio: Annotated[NonBlank, Field(max_length=4000)] | None = None
+    company: Annotated[NonBlank, Field(max_length=160)]
+    job_title: Annotated[NonBlank, Field(max_length=160)]
+    experience_years: Decimal = Field(ge=0, le=60, decimal_places=1)
+    linkedin_url: HttpUrl
+    github_url: HttpUrl
+    bio: Annotated[NonBlank, Field(min_length=50, max_length=4000)]
 
     @field_validator("linkedin_url")
     @classmethod
-    def linkedin_host(cls, value: HttpUrl | None) -> HttpUrl | None:
-        host = value.host if value else None
-        if host and host != "linkedin.com" and not host.endswith(".linkedin.com"):
-            raise ValueError("linkedin_url must use a linkedin.com host")
+    def linkedin_host(cls, value: HttpUrl) -> HttpUrl:
+        host = value.host or ""
+        path = (value.path or "").rstrip("/")
+        if (
+            (host != "linkedin.com" and not host.endswith(".linkedin.com"))
+            or not path.startswith("/in/")
+            or len(path.removeprefix("/in/")) == 0
+        ):
+            raise ValueError("linkedin_url must be a LinkedIn /in/ profile URL")
         return value
 
     @field_validator("github_url")
     @classmethod
-    def github_host(cls, value: HttpUrl | None) -> HttpUrl | None:
-        if value and value.host not in {"github.com", "www.github.com"}:
-            raise ValueError("github_url must use a github.com host")
+    def github_host(cls, value: HttpUrl) -> HttpUrl:
+        segments = [segment for segment in (value.path or "").split("/") if segment]
+        if value.host not in {"github.com", "www.github.com"} or len(segments) != 1:
+            raise ValueError("github_url must be a GitHub profile URL")
         return value
 
 
@@ -66,6 +74,7 @@ class ProfileResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     user_id: UUID
+    full_name: str | None
     headline: str
     company: str | None
     job_title: str | None
@@ -256,6 +265,35 @@ class VerificationDetailResponse(BaseModel):
     checks: list[VerificationCheckResponse]
     screening: ScreeningResponse | None
     history: list[ReviewHistoryResponse] = Field(default_factory=list)
+    account_email: EmailStr | None = None
+    account_email_verified: bool = False
+    mobile_e164: str | None = None
+    mobile_verified: bool = False
+    company_email: EmailStr | None = None
+    company_email_verified: bool = False
+
+
+class MobileVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    mobile: Annotated[str, Field(min_length=8, max_length=32)]
+
+
+class CompanyEmailVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    company_email: EmailStr
+
+
+class ChallengeVerifyRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    challenge_id: UUID
+    secret: Annotated[str, Field(min_length=6, max_length=128)]
+
+
+class ChallengeResponse(BaseModel):
+    challenge_id: UUID
+    expires_at: datetime
+    resend_available_at: datetime
+    development_secret: str | None = None
 
 
 class VerificationReviewRequest(BaseModel):
@@ -279,6 +317,7 @@ class CandidateTrustResponse(BaseModel):
 
 class PublicInterviewerResponse(BaseModel):
     interviewer_id: UUID
+    full_name: str | None
     headline: str
     job_title: str | None
     experience_years: Decimal

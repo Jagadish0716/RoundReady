@@ -68,6 +68,19 @@ export interface VerificationDetail {
   checks: VerificationCheck[];
   screening: ScreeningResult | null;
   history: VerificationHistory[];
+  account_email?: string | null;
+  account_email_verified?: boolean;
+  mobile_e164?: string | null;
+  mobile_verified?: boolean;
+  company_email?: string | null;
+  company_email_verified?: boolean;
+}
+
+export interface ContactChallenge {
+  challenge_id: string;
+  expires_at: string;
+  resend_available_at: string;
+  development_secret: string | null;
 }
 
 export interface VerificationReviewInput {
@@ -85,6 +98,7 @@ export interface VerificationReviewInput {
 }
 
 export interface InterviewerProfileInput {
+  full_name: string;
   headline: string;
   company: string | null;
   job_title: string | null;
@@ -94,7 +108,11 @@ export interface InterviewerProfileInput {
   bio: string | null;
 }
 
-export interface InterviewerProfile extends InterviewerProfileInput {
+export interface InterviewerProfile extends Omit<
+  InterviewerProfileInput,
+  "full_name"
+> {
+  full_name: string | null;
   user_id: string;
   verification_status: VerificationStatus;
   verification_reason: string | null;

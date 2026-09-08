@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { redirectForRole } from "@/lib/auth/redirect";
+import * as authApi from "@/lib/auth/api";
+import { ApiClientError } from "@/lib/api/client";
 import {
   validateCredentials,
   type CredentialsErrors,
@@ -25,6 +27,8 @@ export function LoginForm() {
   const [errors, setErrors] = useState<CredentialsErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [verificationRequired, setVerificationRequired] = useState(false);
+  const [resendStatus, setResendStatus] = useState<string | null>(null);
   const requested = search.get("next");
   const registerHref = requested
     ? `/register?next=${encodeURIComponent(requested)}`
@@ -41,6 +45,10 @@ export function LoginForm() {
       const user = await login(email.trim(), password);
       router.replace(redirectForRole(user.role, search.get("next")));
     } catch (error) {
+      setVerificationRequired(
+        error instanceof ApiClientError &&
+          error.code === "email_verification_required",
+      );
       setApiError(authErrorMessage(error, "login"));
     } finally {
       setSubmitting(false);
@@ -71,6 +79,26 @@ export function LoginForm() {
           className="rounded-md bg-red-50 p-3 text-sm text-red-800"
         >
           {apiError}
+        </p>
+      ) : null}
+      {verificationRequired ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full"
+          onClick={async () => {
+            await authApi.resendVerification(email.trim(), requested);
+            setResendStatus(
+              "If the account still requires verification, a verification email has been sent.",
+            );
+          }}
+        >
+          Resend verification email
+        </Button>
+      ) : null}
+      {resendStatus ? (
+        <p role="status" className="text-sm text-neutral-600">
+          {resendStatus}
         </p>
       ) : null}
       <div className="space-y-2">

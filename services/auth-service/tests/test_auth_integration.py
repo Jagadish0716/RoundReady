@@ -1,4 +1,5 @@
 from typing import Any, cast
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 import psycopg
@@ -71,6 +72,44 @@ def test_registration_and_user_registered_event(
         event = cursor.fetchone()
     assert user["password"] not in password_hash
     assert event == ("auth.UserRegistered.v1", 1)
+
+
+def test_both_roles_require_one_time_email_verification(
+    client: TestClient, register_user: Any
+) -> None:
+    for role in ("candidate", "interviewer"):
+        user = register_user(role=role, verified=False)
+        blocked = client.post(
+            "/v1/auth/login", json={"email": user["email"], "password": user["password"]}
+        )
+        assert blocked.status_code == 403
+        assert blocked.json()["error"]["code"] == "email_verification_required"
+        url = user["development_verification_url"]
+        token = parse_qs(urlparse(url).query)["token"][0]
+        assert "email=" not in url and "user_id=" not in url
+        verified = client.post("/v1/auth/verify-email", json={"token": token})
+        assert verified.status_code == 200
+        assert client.post(
+            "/v1/auth/login", json={"email": user["email"], "password": user["password"]}
+        ).status_code == 200
+        replay = client.post("/v1/auth/verify-email", json={"token": token})
+        assert replay.status_code == 200
+        assert replay.json()["status"] == "already_verified"
+
+
+def test_verification_invalid_token_and_generic_resend(
+    client: TestClient, register_user: Any
+) -> None:
+    invalid = client.post("/v1/auth/verify-email", json={"token": "x" * 48})
+    assert invalid.status_code == 400
+    missing = client.post(
+        "/v1/auth/resend-verification", json={"email": "missing@example.in"}
+    )
+    assert missing.status_code == 200
+    user = register_user(verified=False)
+    cooldown = client.post("/v1/auth/resend-verification", json={"email": user["email"]})
+    assert cooldown.status_code == 200
+    assert cooldown.json() == missing.json()
 
 
 def test_duplicate_registration(client: TestClient) -> None:
@@ -195,8 +234,9 @@ def test_disabled_user_is_denied_and_event_is_recorded(
     sync_url = postgres_url.replace("postgresql+psycopg", "postgresql")
     with psycopg.connect(sync_url) as connection, connection.cursor() as cursor:
         cursor.execute(
-            "INSERT INTO credentials (id, email, password_hash, role, is_active, created_at) "
-            "VALUES (%s, %s, %s, 'admin', true, now())",
+            "INSERT INTO credentials "
+            "(id, email, password_hash, role, is_active, created_at, email_verified_at) "
+            "VALUES (%s, %s, %s, 'admin', true, now(), now())",
             (admin_id, admin_email, hash_password(admin_password)),
         )
     admin_tokens = login(
