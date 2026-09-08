@@ -57,15 +57,45 @@ describe("CandidateProfileForm", () => {
     defaultRequests();
   });
   afterEach(cleanup);
+  it("shows a loading state while profile data is pending", () => {
+    mocks.request.mockReturnValue(new Promise(() => undefined));
+    render(<CandidateProfileForm />);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Loading your profile",
+    );
+  });
   it("loads profile, splits phone, and shows immutable account email", async () => {
     render(<CandidateProfileForm />);
     expect(await screen.findByLabelText("Full name")).toHaveValue("Asha Rao");
     expect(screen.getByLabelText("Country code")).toHaveValue("India (+91)");
     expect(screen.getByLabelText("Mobile number")).toHaveValue("9876543210");
-    expect(screen.getByLabelText("Profile email")).toHaveValue(
+    expect(screen.getByLabelText("Email address")).toHaveValue(
       "account@example.com",
     );
-    expect(screen.getByLabelText("Profile email")).toBeDisabled();
+    expect(screen.getByLabelText("Email address")).toBeDisabled();
+    expect(screen.getByLabelText("Email address")).toHaveAttribute("readonly");
+    expect(
+      screen.getByRole("complementary", { name: "Candidate navigation" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("complementary", { name: "Profile guidance" }),
+    ).toBeInTheDocument();
+  });
+  it("calculates profile completion from meaningful fields", async () => {
+    render(<CandidateProfileForm />);
+    expect(
+      await screen.findByLabelText("Profile 89% complete"),
+    ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("City"), { target: { value: "" } });
+    expect(screen.getByLabelText("Profile 78% complete")).toBeInTheDocument();
+  });
+  it("renders responsive dashboard structure without fixed page widths", async () => {
+    render(<CandidateProfileForm />);
+    await screen.findByLabelText("Full name");
+    const dashboard = screen.getByLabelText("Candidate profile dashboard");
+    expect(dashboard).toHaveClass("min-w-0");
+    expect(dashboard.className).toContain("lg:grid-cols-");
+    expect(dashboard.className).toContain("xl:grid-cols-");
   });
   it("submits canonical phone without email", async () => {
     render(<CandidateProfileForm />);
@@ -81,12 +111,47 @@ describe("CandidateProfileForm", () => {
     expect(save?.[1].body.phone).toBe("+919876543210");
     expect(save?.[1].body).not.toHaveProperty("email");
   });
-  it("enforces the 0–20 experience range", async () => {
+  it.each([
+    "21",
+    "33333333",
+    "33333333.333333",
+    "-1",
+    "abc",
+    "1e5",
+    "+2",
+    "1.55",
+  ])(
+    "rejects invalid experience input %s without displaying it",
+    async (attempted) => {
+      render(<CandidateProfileForm />);
+      const input = await screen.findByLabelText("Experience (years)");
+      expect(input).toHaveValue("4.5");
+      fireEvent.change(input, { target: { value: attempted } });
+      expect(input).toHaveValue("4.5");
+    },
+  );
+  it.each(["0", "0.5", "1", "1.5", "20"])(
+    "accepts and submits valid experience %s",
+    async (value) => {
+      render(<CandidateProfileForm />);
+      const input = await screen.findByLabelText("Experience (years)");
+      fireEvent.change(input, { target: { value } });
+      expect(input).toHaveValue(value);
+      fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+      await screen.findByText("Profile saved successfully.");
+      const save = mocks.request.mock.calls.find(
+        (call) => call[1]?.method === "PUT",
+      );
+      expect(save?.[1].body.experience_years).toBe(value);
+    },
+  );
+  it("allows an empty value while editing and validates it on submit", async () => {
     render(<CandidateProfileForm />);
-    await screen.findByLabelText("Full name");
-    fireEvent.change(screen.getByLabelText("Experience (years)"), {
-      target: { value: "21" },
+    const input = await screen.findByLabelText("Experience (years)");
+    fireEvent.change(input, {
+      target: { value: "" },
     });
+    expect(input).toHaveValue("");
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
     expect(
       await screen.findByText("Experience must be between 0 and 20 years."),
@@ -94,6 +159,24 @@ describe("CandidateProfileForm", () => {
     expect(
       mocks.request.mock.calls.some((call) => call[1]?.method === "PUT"),
     ).toBe(false);
+  });
+  it("rejects pasted invalid experience content", async () => {
+    render(<CandidateProfileForm />);
+    const input = await screen.findByLabelText("Experience (years)");
+    fireEvent.change(input, { target: { value: "999 pasted" } });
+    expect(input).toHaveValue("4.5");
+  });
+  it("safely handles invalid historical experience returned by the API", async () => {
+    mocks.request.mockImplementation((path: string) =>
+      path.endsWith("/resume")
+        ? Promise.reject(notFound)
+        : Promise.resolve({ ...profile, experience_years: "33333333.3" }),
+    );
+    render(<CandidateProfileForm />);
+    expect(await screen.findByLabelText("Experience (years)")).toHaveValue("");
+    expect(
+      screen.getByText("Experience must be between 0 and 20 years."),
+    ).toBeInTheDocument();
   });
   it("offers only supported languages", async () => {
     render(<CandidateProfileForm />);
@@ -145,6 +228,10 @@ describe("CandidateProfileForm", () => {
         ],
       },
     });
+    expect(screen.getByText("resume.pdf")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Remove resume.pdf" }),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
     await waitFor(() =>
       expect(

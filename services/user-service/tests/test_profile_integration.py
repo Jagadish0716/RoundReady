@@ -123,7 +123,7 @@ def test_email_cannot_be_overridden(
 def test_profile_boundaries_and_phone_normalization(
     client: TestClient, profile_payload: dict[str, object]
 ) -> None:
-    for years in (0, 20):
+    for years in (0, "1.5", 20):
         headers = identity_headers()
         response = client.put(
             "/v1/me/profile",
@@ -132,7 +132,7 @@ def test_profile_boundaries_and_phone_normalization(
         )
         assert response.status_code == 200
         assert response.json()["phone"] == "+919876543210"
-    for years in (-1, 21):
+    for years in (-1, 21, 99999999, "1.55"):
         assert (
             client.put(
                 "/v1/me/profile",

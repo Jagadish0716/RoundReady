@@ -92,6 +92,16 @@ describe("authentication forms", () => {
     );
   });
 
+  it("rejects an external requested redirect", async () => {
+    mocks.requested = "https://malicious.example/steal";
+    mocks.login.mockResolvedValue({ role: "candidate" });
+    render(<LoginForm />);
+    completeLogin();
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith("/candidate"),
+    );
+  });
+
   it("shows invalid credentials", async () => {
     mocks.login.mockRejectedValue(
       new ApiClientError(
@@ -116,6 +126,18 @@ describe("authentication forms", () => {
     completeRegistration();
     await waitFor(() =>
       expect(mocks.replace).toHaveBeenCalledWith("/login?registered=1"),
+    );
+  });
+
+  it("preserves booking context when sending a registered user to login", async () => {
+    mocks.requested = "/candidate?slot=slot-1&interviewer=interviewer-1";
+    mocks.register.mockResolvedValue({ id: "user" });
+    render(<RegisterForm />);
+    completeRegistration();
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith(
+        `/login?registered=1&next=${encodeURIComponent(mocks.requested!)}`,
+      ),
     );
   });
 

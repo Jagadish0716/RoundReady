@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from app.api.schemas import ProfileUpsertRequest, ResumeMetadataUpsertRequest
 from pydantic import ValidationError
@@ -6,6 +8,19 @@ from pydantic import ValidationError
 def test_profile_rejects_invalid_phone() -> None:
     with pytest.raises(ValidationError):
         ProfileUpsertRequest(full_name="Candidate", phone="not-a-number")
+
+
+@pytest.mark.parametrize("years", ["0", "0.5", "1.5", "20"])
+def test_profile_accepts_experience_within_one_decimal_precision(years: str) -> None:
+    assert ProfileUpsertRequest(
+        full_name="Candidate", experience_years=years
+    ).experience_years == Decimal(years)
+
+
+@pytest.mark.parametrize("years", ["-1", "21", "99999999", "1.55", "1e5"])
+def test_profile_rejects_invalid_experience(years: str) -> None:
+    with pytest.raises(ValidationError):
+        ProfileUpsertRequest(full_name="Candidate", experience_years=years)
 
 
 def test_profile_rejects_non_linkedin_host() -> None:
