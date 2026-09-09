@@ -3,6 +3,7 @@ from typing import Annotated
 from uuid import UUID
 
 from app.api.schemas import (
+    ActiveBookingCheckResponse,
     BookingCreateRequest,
     BookingResponse,
     GenerateSlotsRequest,
@@ -21,15 +22,33 @@ from app.dependencies import (
     DatabaseSession,
     HoldStore,
 )
-from app.domain.models import BookingStatus
+from app.domain.models import Booking, BookingStatus
 from fastapi import APIRouter, Header, Query, Response
 from roundready_common.errors import ServiceError
+from sqlalchemy import func, select
 
 router = APIRouter(prefix="/v1", tags=["booking"])
 
 
 def service(session: DatabaseSession, holds: HoldStore, settings: AppSettings) -> BookingService:
     return BookingService(session, holds, settings)
+
+
+@router.get(
+    "/internal/interviewers/{interviewer_id}/active-bookings",
+    response_model=ActiveBookingCheckResponse,
+)
+async def active_interviewer_bookings(
+    interviewer_id: UUID, _admin: AdminIdentity, session: DatabaseSession
+) -> ActiveBookingCheckResponse:
+    count = await session.scalar(
+        select(func.count(Booking.id)).where(
+            Booking.interviewer_id == interviewer_id,
+            Booking.occupies_time.is_(True),
+            Booking.ends_at > datetime.now(UTC),
+        )
+    )
+    return ActiveBookingCheckResponse(active_booking_count=count or 0)
 
 
 @router.get("/public/slots", response_model=list[SlotResponse])

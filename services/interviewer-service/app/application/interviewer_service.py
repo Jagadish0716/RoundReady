@@ -5,12 +5,14 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
+import httpx
 import phonenumbers
 from app.api.schemas import (
     BlockoutCreateRequest,
     ChallengeResponse,
     EvidenceInput,
     ProfileUpsertRequest,
+    ScreeningReviewRequest,
     SkillReplaceRequest,
     VerificationReviewRequest,
     WeeklyRulesReplaceRequest,
@@ -290,6 +292,9 @@ class InterviewerService:
     async def upsert_profile(
         self, user_id: UUID, request: ProfileUpsertRequest
     ) -> InterviewerProfile:
+        existing = await self._session.get(InterviewerProfile, user_id)
+        if existing is not None:
+            self._ensure_active(existing)
         values = request.model_dump(mode="json")
         values["user_id"] = user_id
         updates = {key: value for key, value in values.items() if key != "user_id"}
@@ -362,7 +367,7 @@ class InterviewerService:
     async def get_verification(
         self, user_id: UUID, include_history: bool = False
     ) -> dict[str, object]:
-        await self.get_profile(user_id)
+        self._ensure_active(await self.get_profile(user_id))
         verification = await self._verification(user_id)
         evidence = list(
             (
@@ -396,6 +401,8 @@ class InterviewerService:
                     )
                 ).all()
             )
+        passed = {item.check_type for item in checks if item.passed}
+        required = {item.value for item in VerificationCheckType}
         return {
             "interviewer_id": user_id,
             "status": verification.status,
@@ -407,10 +414,103 @@ class InterviewerService:
             "checks": checks,
             "screening": screening,
             "history": history,
+            "missing_requirements": sorted(required - passed),
         }
 
+    async def review_linkedin(self, user_id: UUID, admin_id: UUID) -> dict[str, object]:
+        self._prevent_self_review(user_id, admin_id)
+        profile = await self._locked_profile(user_id)
+        if not profile.linkedin_url:
+            raise ServiceError(
+                code="linkedin_profile_missing",
+                message="A LinkedIn profile must exist before it can be reviewed",
+                status_code=409,
+            )
+        await self._set_check(
+            user_id, VerificationCheckType.LINKEDIN_REVIEWED, True,
+            admin_id, datetime.now(UTC),
+        )
+        await self._session.commit()
+        return await self.get_verification(user_id, include_history=True)
+
+    async def review_evidence(
+        self, user_id: UUID, evidence_id: UUID, admin_id: UUID,
+        status: EvidenceStatus, notes: str | None,
+    ) -> dict[str, object]:
+        self._prevent_self_review(user_id, admin_id)
+        await self._locked_profile(user_id)
+        evidence = await self._session.scalar(
+            select(VerificationEvidence).where(
+                VerificationEvidence.id == evidence_id,
+                VerificationEvidence.interviewer_id == user_id,
+            ).with_for_update()
+        )
+        if evidence is None:
+            raise ServiceError(
+                code="evidence_not_found",
+                message="Verification evidence was not found",
+                status_code=404,
+            )
+        now = datetime.now(UTC)
+        evidence.status = status.value
+        evidence.reviewer_notes = notes
+        evidence.reviewed_at = now
+        evidence.reviewed_by = admin_id
+        verified_count = await self._session.scalar(
+            select(VerificationEvidence.id).where(
+                VerificationEvidence.interviewer_id == user_id,
+                VerificationEvidence.status == EvidenceStatus.VERIFIED.value,
+            ).limit(1)
+        )
+        await self._set_check(
+            user_id, VerificationCheckType.PROFESSIONAL_EVIDENCE_REVIEWED,
+            status is EvidenceStatus.VERIFIED or verified_count is not None,
+            admin_id, now,
+        )
+        await self._session.commit()
+        return await self.get_verification(user_id, include_history=True)
+
+    async def record_screening(
+        self, user_id: UUID, admin_id: UUID, request: ScreeningReviewRequest
+    ) -> dict[str, object]:
+        self._prevent_self_review(user_id, admin_id)
+        await self._locked_profile(user_id)
+        screening = await self._session.scalar(
+            select(ScreeningCall).where(ScreeningCall.interviewer_id == user_id).with_for_update()
+        )
+        if screening is None:
+            if request.screening_status is not ScreeningStatus.PENDING:
+                raise ServiceError(
+                    code="screening_not_scheduled",
+                    message="Schedule screening before recording its result",
+                    status_code=409,
+                )
+            screening = ScreeningCall(interviewer_id=user_id)
+            self._session.add(screening)
+        elif (
+            request.screening_status in {ScreeningStatus.PASSED, ScreeningStatus.FAILED}
+            and screening.screening_status != ScreeningStatus.PENDING.value
+        ):
+            raise ServiceError(
+                code="screening_not_scheduled",
+                message="Only a scheduled screening can receive a result",
+                status_code=409,
+            )
+        now = datetime.now(UTC)
+        for key, value in request.model_dump(mode="json").items():
+            setattr(screening, key, value)
+        screening.reviewed_by = admin_id
+        screening.reviewed_at = now
+        await self._session.flush()
+        await self._set_check(
+            user_id, VerificationCheckType.SCREENING_CALL_PASSED,
+            request.screening_status is ScreeningStatus.PASSED, admin_id, now,
+        )
+        await self._session.commit()
+        return await self.get_verification(user_id, include_history=True)
+
     async def upsert_evidence(self, user_id: UUID, request: EvidenceInput) -> dict[str, object]:
-        await self.get_profile(user_id)
+        self._ensure_active(await self.get_profile(user_id))
         verification = await self._verification(user_id)
         if verification.status in {
             VerificationStatus.VERIFIED.value,
@@ -451,6 +551,12 @@ class InterviewerService:
         profile = await self._locked_profile(user_id)
         verification = await self._verification(user_id)
         now = datetime.now(UTC)
+        if request.checks or request.evidence_statuses or request.screening:
+            raise ServiceError(
+                code="verification_action_payload_not_allowed",
+                message="Use the dedicated review actions before final approval",
+                status_code=422,
+            )
         for check_type, passed in request.checks.items():
             if check_type in {
                 VerificationCheckType.EMAIL_VERIFIED,
@@ -561,10 +667,12 @@ class InterviewerService:
                 VerificationCheckType.SCREENING_CALL_PASSED.value,
             }
             if not required <= passed_checks:
+                missing = sorted(required - passed_checks)
                 raise ServiceError(
-                    code="verification_checks_incomplete",
-                    message="All required ownership and professional checks must pass",
+                    code="verification_prerequisites_incomplete",
+                    message="Complete all verification prerequisites before approval",
                     status_code=409,
+                    details={"missing": missing},
                 )
         if request.action in {"reject", "request_more_evidence", "suspend"} and not request.reason:
             raise ServiceError(
@@ -646,7 +754,10 @@ class InterviewerService:
             (
                 await self._session.scalars(
                     select(InterviewerProfile)
-                    .where(InterviewerProfile.verification_status == VerificationStatus.VERIFIED)
+                    .where(
+                        InterviewerProfile.verification_status == VerificationStatus.VERIFIED,
+                        InterviewerProfile.deleted_at.is_(None),
+                    )
                     .order_by(InterviewerProfile.updated_at.desc())
                 )
             ).all()
@@ -655,7 +766,10 @@ class InterviewerService:
 
     async def public_interviewer(self, user_id: UUID) -> dict[str, object]:
         profile = await self.get_profile(user_id)
-        if profile.verification_status is not VerificationStatus.VERIFIED:
+        if (
+            profile.verification_status is not VerificationStatus.VERIFIED
+            or profile.deleted_at is not None
+        ):
             raise ServiceError(
                 code="interviewer_not_found",
                 message="Interviewer was not found",
@@ -727,7 +841,7 @@ class InterviewerService:
     async def replace_skills(
         self, user_id: UUID, request: SkillReplaceRequest
     ) -> list[InterviewerSkill]:
-        await self.get_profile(user_id)
+        self._ensure_active(await self.get_profile(user_id))
         await self._session.execute(
             delete(InterviewerSkill).where(InterviewerSkill.user_id == user_id)
         )
@@ -829,7 +943,7 @@ class InterviewerService:
     async def list_profiles(
         self, verification_status: VerificationStatus | None
     ) -> list[InterviewerProfile]:
-        statement = select(InterviewerProfile)
+        statement = select(InterviewerProfile).where(InterviewerProfile.deleted_at.is_(None))
         if verification_status is not None:
             statement = statement.where(
                 InterviewerProfile.verification_status == verification_status
@@ -845,6 +959,61 @@ class InterviewerService:
                 )
             ).all()
         )
+
+    async def delete_interviewer(
+        self, user_id: UUID, admin_id: UUID, reason: str
+    ) -> InterviewerProfile:
+        self._prevent_self_review(user_id, admin_id)
+        profile = await self._locked_profile(user_id, allow_deleted=True)
+        if profile.deleted_at is not None:
+            return profile
+        if self._settings is None:
+            raise RuntimeError("Settings are required for interviewer deletion")
+        headers = {
+            "X-User-ID": str(admin_id),
+            "X-User-Role": "admin",
+            "X-Internal-Identity-Secret": (
+                self._settings.internal_identity_secret.get_secret_value()
+            ),
+        }
+        try:
+            async with httpx.AsyncClient(timeout=5) as client:
+                response = await client.get(
+                    f"{self._settings.booking_service_url.rstrip('/')}/v1/internal/interviewers/"
+                    f"{user_id}/active-bookings",
+                    headers=headers,
+                )
+            response.raise_for_status()
+            active_count = int(response.json()["active_booking_count"])
+        except (httpx.HTTPError, KeyError, TypeError, ValueError) as exc:
+            raise ServiceError(
+                code="booking_safety_check_unavailable",
+                message="Could not verify whether the interviewer has active bookings",
+                status_code=503,
+            ) from exc
+        if active_count:
+            raise ServiceError(
+                code="interviewer_has_active_bookings",
+                message="Interviewer has active or future bookings",
+                status_code=409,
+                details={"active_booking_count": active_count},
+            )
+        profile.deleted_at = datetime.now(UTC)
+        profile.deleted_by_admin_id = admin_id
+        profile.deletion_reason = reason
+        self._session.add(
+            VerificationReviewHistory(
+                interviewer_id=user_id,
+                action="deleted",
+                from_status=profile.verification_status.value,
+                to_status=profile.verification_status.value,
+                reviewed_by=admin_id,
+                notes=reason,
+            )
+        )
+        self._add_event("interviewer.deleted.v1", {"interviewer_id": str(user_id)})
+        await self._session.commit()
+        return profile
 
     async def review(
         self, user_id: UUID, admin_id: UUID, target: VerificationStatus, reason: str | None = None
@@ -878,10 +1047,12 @@ class InterviewerService:
                 VerificationCheckType.SCREENING_CALL_PASSED.value,
             }
             if not required <= passed:
+                missing = sorted(required - passed)
                 raise ServiceError(
-                    code="verification_checks_incomplete",
-                    message="All required ownership and professional checks must pass",
+                    code="verification_prerequisites_incomplete",
+                    message="Complete all verification prerequisites before approval",
                     status_code=409,
+                    details={"missing": missing},
                 )
         profile.verification_status = target
         profile.verification_reason = reason
@@ -957,7 +1128,9 @@ class InterviewerService:
         await self._session.commit()
         return profile
 
-    async def _locked_profile(self, user_id: UUID) -> InterviewerProfile:
+    async def _locked_profile(
+        self, user_id: UUID, *, allow_deleted: bool = False
+    ) -> InterviewerProfile:
         profile = await self._session.scalar(
             select(InterviewerProfile)
             .where(InterviewerProfile.user_id == user_id)
@@ -969,7 +1142,18 @@ class InterviewerService:
                 message="Interviewer profile was not found",
                 status_code=404,
             )
+        if not allow_deleted:
+            self._ensure_active(profile)
         return profile
+
+    @staticmethod
+    def _ensure_active(profile: InterviewerProfile) -> None:
+        if profile.deleted_at is not None:
+            raise ServiceError(
+                code="interviewer_deleted",
+                message="Deleted interviewer accounts cannot perform this action",
+                status_code=409,
+            )
 
     def _add_event(self, event_type: str, payload: dict[str, object]) -> None:
         self._session.add(

@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Any, cast
 from uuid import UUID, uuid4
 
 import psycopg
@@ -21,18 +21,34 @@ def approve_interviewer(
     postgres_url: str,
 ) -> None:
     satisfy_contact_checks(client, interviewer, postgres_url)
-    client.post("/v1/me/verification/submit", headers=interviewer)
-    response = client.post(
-        f"/v1/admin/interviewers/{interviewer['X-User-ID']}/verification/review",
-        headers=admin,
+    client.put(
+        "/v1/me/verification/evidence",
+        headers=interviewer,
         json={
-            "action": "verify",
-            "checks": {
-                "linkedin_reviewed": True,
-                "professional_evidence_reviewed": True,
-            },
-            "screening": {"screening_status": "passed", "overall_result": "passed"},
+            "evidence_type": "github_or_portfolio",
+            "value_reference": "https://github.com/reviewer",
         },
+    )
+    client.post("/v1/me/verification/submit", headers=interviewer)
+    base = f"/v1/admin/interviewers/{interviewer['X-User-ID']}/verification"
+    assert client.post(f"{base}/linkedin-review", headers=admin).status_code == 200
+    detail = client.get(base, headers=admin).json()
+    evidence_id = detail["evidence"][0]["id"]
+    assert client.post(
+        f"{base}/evidence/{evidence_id}/review",
+        headers=admin,
+        json={"status": "verified"},
+    ).status_code == 200
+    assert client.post(
+        f"{base}/screening", headers=admin, json={"screening_status": "pending"}
+    ).status_code == 200
+    assert client.post(
+        f"{base}/screening",
+        headers=admin,
+        json={"screening_status": "passed", "overall_result": "passed"},
+    ).status_code == 200
+    response = client.post(
+        f"/v1/admin/interviewers/{interviewer['X-User-ID']}/approve", headers=admin
     )
     assert response.status_code == 200
 
@@ -361,32 +377,10 @@ def test_verification_approve_suspend_reactivate_and_events(
     interviewer, admin = headers(), headers("admin")
     created = create_profile(client, interviewer, profile)
     user_id = created["user_id"]
-    satisfy_contact_checks(client, interviewer, postgres_url)
-    assert (
-        client.post("/v1/me/verification/submit", headers=interviewer).json()["verification_status"]
-        == "under_review"
-    )
-    queue = client.get("/v1/admin/verification-queue", headers=admin)
-    assert user_id in {item["user_id"] for item in queue.json()}
-    approved = client.post(
-        f"/v1/admin/interviewers/{user_id}/verification/review",
-        headers=admin,
-        json={
-            "action": "verify",
-            "checks": {
-                "linkedin_reviewed": True,
-                "professional_evidence_reviewed": True,
-            },
-            "screening": {
-                "screening_status": "passed",
-                "communication_assessment": "Clear communication",
-                "technical_assessment": "Strong technical depth",
-                "overall_result": "passed",
-            },
-        },
-    )
+    approve_interviewer(client, interviewer, admin, postgres_url)
+    approved = client.get("/v1/me/profile", headers=interviewer)
     assert approved.status_code == 200
-    assert approved.json()["status"] == "verified"
+    assert approved.json()["verification_status"] == "verified"
     verified = client.get("/v1/admin/interviewers?verification_status=verified", headers=admin)
     assert user_id in {item["user_id"] for item in verified.json()}
     suspended = client.post(
@@ -461,19 +455,20 @@ def test_layered_evidence_is_private_and_candidate_trust_is_safe(
     assert client.get("/v1/me/verification", headers=other).status_code == 404
     satisfy_contact_checks(client, interviewer, postgres_url)
     client.post("/v1/me/verification/submit", headers=interviewer)
-    reviewed = client.post(
-        f"/v1/admin/interviewers/{user_id}/verification/review",
+    base = f"/v1/admin/interviewers/{user_id}/verification"
+    client.post(f"{base}/linkedin-review", headers=admin)
+    client.post(
+        f"{base}/evidence/{evidence.json()['evidence'][0]['id']}/review",
         headers=admin,
-        json={
-            "action": "verify",
-            "checks": {
-                "linkedin_reviewed": True,
-                "professional_evidence_reviewed": True,
-            },
-            "evidence_statuses": {evidence.json()["evidence"][0]["id"]: "verified"},
-            "screening": {"screening_status": "passed", "overall_result": "passed"},
-        },
+        json={"status": "verified"},
     )
+    client.post(f"{base}/screening", headers=admin, json={"screening_status": "pending"})
+    client.post(
+        f"{base}/screening",
+        headers=admin,
+        json={"screening_status": "passed", "overall_result": "passed"},
+    )
+    reviewed = client.post(f"/v1/admin/interviewers/{user_id}/approve", headers=admin)
     assert reviewed.status_code == 200
     trust = client.get(f"/v1/{user_id}/trust", headers=headers("candidate"))
     assert trust.status_code == 200
@@ -563,6 +558,48 @@ def test_weekly_availability_and_blockouts_publish_changes(
         count = cursor.fetchone()
         assert count is not None
         assert count[0] == 3
+
+
+def test_admin_soft_delete_is_idempotent_and_hidden(
+    client: TestClient,
+    profile: dict[str, object],
+    monkeypatch: Any,
+) -> None:
+    interviewer, admin = headers(), headers("admin")
+    user_id = create_profile(client, interviewer, profile)["user_id"]
+
+    class BookingResponse:
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, int]:
+            return {"active_booking_count": 0}
+
+    class BookingClient:
+        async def __aenter__(self) -> "BookingClient":
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            return None
+
+        async def get(self, *_args: object, **_kwargs: object) -> BookingResponse:
+            return BookingResponse()
+
+    monkeypatch.setattr(
+        "app.application.interviewer_service.httpx.AsyncClient",
+        lambda **_kwargs: BookingClient(),
+    )
+    path = f"/v1/admin/interviewers/{user_id}/delete"
+    deleted = client.post(path, headers=admin, json={"reason": "Policy violation"})
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted_at"] is not None
+    assert client.post(path, headers=admin, json={"reason": "Repeated"}).status_code == 200
+    assert user_id not in {
+        item["user_id"] for item in client.get("/v1/admin/interviewers", headers=admin).json()
+    }
+    assert client.put("/v1/me/profile", headers=interviewer, json=profile).json()["error"][
+        "code"
+    ] == "interviewer_deleted"
 
 
 def test_no_booking_or_auth_tables(client: TestClient, postgres_url: str) -> None:

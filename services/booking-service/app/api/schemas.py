@@ -6,6 +6,10 @@ from app.domain.models import BookingStatus, SlotStatus
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+class ActiveBookingCheckResponse(BaseModel):
+    active_booking_count: int
+
+
 class SlotWindow(BaseModel):
     starts_at: datetime
     ends_at: datetime

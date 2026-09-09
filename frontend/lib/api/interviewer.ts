@@ -7,6 +7,8 @@ import type {
   InterviewerSkill,
   InterviewerSkillInput,
   EvidenceType,
+  EvidenceStatus,
+  ScreeningStatus,
   VerificationDetail,
   VerificationReviewInput,
   WeeklyRule,
@@ -128,6 +130,44 @@ export const reviewVerification = (
     `${admin}/interviewers/${interviewerId}/verification/review`,
     { method: "POST", body },
   );
+export const markLinkedinReviewed = (
+  request: AuthenticatedRequest,
+  interviewerId: string,
+) =>
+  request<VerificationDetail>(
+    `${admin}/interviewers/${interviewerId}/verification/linkedin-review`,
+    { method: "POST" },
+  );
+export const reviewEvidence = (
+  request: AuthenticatedRequest,
+  interviewerId: string,
+  evidenceId: string,
+  status: EvidenceStatus,
+  notes?: string,
+) =>
+  request<VerificationDetail>(
+    `${admin}/interviewers/${interviewerId}/verification/evidence/${evidenceId}/review`,
+    { method: "POST", body: { status, notes: notes || null } },
+  );
+export const recordScreening = (
+  request: AuthenticatedRequest,
+  interviewerId: string,
+  screening_status: ScreeningStatus,
+  notes?: string,
+) =>
+  request<VerificationDetail>(
+    `${admin}/interviewers/${interviewerId}/verification/screening`,
+    {
+      method: "POST",
+      body: {
+        screening_status,
+        reviewer_notes: notes || null,
+        communication_assessment: null,
+        technical_assessment: null,
+        overall_result: screening_status,
+      },
+    },
+  );
 export const approveInterviewer = (
   request: AuthenticatedRequest,
   interviewerId: string,
@@ -167,3 +207,12 @@ export const reactivateInterviewer = (
     `${admin}/interviewers/${interviewerId}/reactivate`,
     { method: "POST" },
   );
+export const deleteInterviewer = (
+  request: AuthenticatedRequest,
+  interviewerId: string,
+  reason: string,
+) =>
+  request<InterviewerProfile>(`${admin}/interviewers/${interviewerId}/delete`, {
+    method: "POST",
+    body: { reason },
+  });

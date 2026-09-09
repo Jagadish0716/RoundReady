@@ -152,6 +152,7 @@ services:
       INTERVIEWER_DATABASE_URL: postgresql+asyncpg://${INTERVIEWER_DB_USER:?}:${INTERVIEWER_DB_PASSWORD:?}@postgres:5432/${INTERVIEWER_DB_NAME:-roundready_interviewer}
       INTERNAL_IDENTITY_SECRET: ${INTERNAL_IDENTITY_SECRET:?}
       CONTACT_VERIFICATION_SECRET: ${CONTACT_VERIFICATION_SECRET:-roundready-local-contact-verification-only}
+      BOOKING_SERVICE_URL: http://booking-service:8000
       RABBITMQ_URL: amqp://${RABBITMQ_USER:?}:${RABBITMQ_PASSWORD:?}@rabbitmq:5672/${RABBITMQ_VHOST:-roundready}
     depends_on: {postgres: {condition: service_healthy}}
     healthcheck: *api-health

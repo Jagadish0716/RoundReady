@@ -73,6 +73,17 @@ def test_simultaneous_holds_allow_one_winner(client: TestClient) -> None:
     assert sorted(results) == [200, 409]
 
 
+def test_internal_active_booking_check(client: TestClient) -> None:
+    admin = headers("admin")
+    interviewer = uuid4()
+    path = f"/v1/internal/interviewers/{interviewer}/active-bookings"
+    assert client.get(path, headers=admin).json() == {"active_booking_count": 0}
+    slot = generate(client, admin, interviewer, datetime(2030, 1, 1, 10, tzinfo=UTC))
+    status, _ = book(client, headers(), str(slot["id"]), "active-check-booking")
+    assert status == 201
+    assert client.get(path, headers=admin).json() == {"active_booking_count": 1}
+
+
 def test_non_verified_interviewer_is_hidden_and_not_bookable(client: TestClient) -> None:
     admin = headers("admin")
     interviewer = uuid4()

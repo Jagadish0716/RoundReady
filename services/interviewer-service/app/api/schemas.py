@@ -88,6 +88,9 @@ class ProfileResponse(BaseModel):
     rating_count: int
     completed_interviews: int
     reliability_score: Decimal
+    deleted_at: datetime | None = None
+    deleted_by_admin_id: UUID | None = None
+    deletion_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -271,6 +274,7 @@ class VerificationDetailResponse(BaseModel):
     mobile_verified: bool = False
     company_email: EmailStr | None = None
     company_email_verified: bool = False
+    missing_requirements: list[VerificationCheckType] = Field(default_factory=list)
 
 
 class MobileVerificationRequest(BaseModel):
@@ -305,6 +309,19 @@ class VerificationReviewRequest(BaseModel):
     checks: dict[VerificationCheckType, bool] = Field(default_factory=dict)
     evidence_statuses: dict[UUID, EvidenceStatus] = Field(default_factory=dict)
     screening: ScreeningInput | None = None
+
+
+class EvidenceReviewRequest(BaseModel):
+    status: EvidenceStatus
+    notes: Annotated[str, Field(max_length=2000)] | None = None
+
+
+class ScreeningReviewRequest(ScreeningInput):
+    pass
+
+
+class InterviewerDeleteRequest(BaseModel):
+    reason: Annotated[str, StringConstraints(strip_whitespace=True, min_length=3, max_length=1000)]
 
 
 class CandidateTrustResponse(BaseModel):

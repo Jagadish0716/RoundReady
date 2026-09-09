@@ -39,6 +39,7 @@ async def run() -> None:
         "interviewer.verification.approved.v1",
         "interviewer.verification.rejected.v1",
         "interviewer.verification.suspended.v1",
+        "interviewer.deleted.v1",
     )
     for event_type in (PAYMENT_CAPTURED, PAYMENT_FAILED, PAYMENT_REFUNDED, *verification_events):
         await queue.bind(exchange, routing_key=event_type)

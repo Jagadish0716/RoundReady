@@ -4,9 +4,13 @@ from uuid import uuid4
 
 import psycopg
 import pytest
-from app.domain.models import Credential, Role
+from app.domain.models import Credential, EmailVerificationChallenge, Role
 from app.domain.security import hash_password
-from app.scripts.create_admin import ProvisionResult, provision_admin
+from app.scripts.create_admin import (
+    ProvisionResult,
+    provision_admin,
+    reconcile_admin_email_verification,
+)
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
@@ -164,6 +168,7 @@ async def test_admin_bootstrap_is_hashed_login_capable_and_idempotent(
     assert second is ProvisionResult.ALREADY_EXISTS
     assert credential is not None
     assert credential.role is Role.ADMIN
+    assert credential.email_verified_at is not None
     assert credential.password_hash != password
     response = client.post("/v1/auth/login", json={"email": email, "password": password})
     assert response.status_code == 200
@@ -174,6 +179,83 @@ async def test_admin_bootstrap_is_hashed_login_capable_and_idempotent(
         ).status_code
         == 401
     )
+
+
+@pytest.mark.asyncio
+async def test_trusted_admin_reconciliation_is_explicit_idempotent_and_keeps_password(
+    client: TestClient,
+) -> None:
+    from app.infrastructure.database import session_factory
+
+    email = f"historical-admin-{uuid4()}@example.in"
+    password = "HistoricalAdminPassword1!"
+    async with session_factory() as session:
+        assert await provision_admin(session, email, password) is ProvisionResult.CREATED
+        credential = await session.scalar(select(Credential).where(Credential.email == email))
+        assert credential is not None
+        original_password_hash = credential.password_hash
+        credential.email_verified_at = None
+        await session.commit()
+    blocked = client.post("/v1/auth/login", json={"email": email, "password": password})
+    assert blocked.status_code == 403
+    async with session_factory() as session:
+        result = await reconcile_admin_email_verification(session, email.upper())
+    async with session_factory() as session:
+        repeated = await reconcile_admin_email_verification(session, email)
+        credential = await session.scalar(select(Credential).where(Credential.email == email))
+    assert result is ProvisionResult.RECONCILED
+    assert repeated is ProvisionResult.ALREADY_EXISTS
+    assert credential is not None
+    assert credential.email_verified_at is not None
+    assert credential.password_hash == original_password_hash
+    assert client.post(
+        "/v1/auth/login", json={"email": email, "password": password}
+    ).status_code == 200
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["candidate", "interviewer"])
+async def test_admin_reconciliation_refuses_public_accounts(
+    register_user: Any, role: str
+) -> None:
+    from app.infrastructure.database import session_factory
+
+    user = register_user(role=role, verified=False)
+    async with session_factory() as session:
+        with pytest.raises(ValueError, match="non-admin"):
+            await reconcile_admin_email_verification(session, user["email"])
+        credential = await session.get(Credential, user["id"])
+    assert credential is not None
+    assert credential.role.value == role
+    assert credential.email_verified_at is None
+
+
+@pytest.mark.asyncio
+async def test_public_resend_does_not_create_admin_challenge(client: TestClient) -> None:
+    from app.infrastructure.database import session_factory
+
+    email = f"unverified-admin-{uuid4()}@example.in"
+    async with session_factory() as session:
+        session.add(
+            Credential(
+                email=email,
+                password_hash=hash_password("UnverifiedAdminPassword1!"),
+                role=Role.ADMIN,
+                email_verified_at=None,
+            )
+        )
+        await session.commit()
+    admin_response = client.post("/v1/auth/resend-verification", json={"email": email})
+    missing_response = client.post(
+        "/v1/auth/resend-verification", json={"email": f"missing-{uuid4()}@example.in"}
+    )
+    assert admin_response.status_code == 200
+    assert admin_response.json() == missing_response.json()
+    async with session_factory() as session:
+        challenge = await session.scalar(
+            select(EmailVerificationChallenge).join(Credential).where(Credential.email == email)
+        )
+    assert challenge is None
 
 
 def test_login_success_failure_role_claim_and_current_identity(

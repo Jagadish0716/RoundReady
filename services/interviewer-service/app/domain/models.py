@@ -103,6 +103,9 @@ class InterviewerProfile(Base):
     rating_count: Mapped[int] = mapped_column(default=0)
     completed_interviews: Mapped[int] = mapped_column(default=0)
     reliability_score: Mapped[Decimal] = mapped_column(Numeric(5, 2), default=Decimal("100.00"))
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_by_admin_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    deletion_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now

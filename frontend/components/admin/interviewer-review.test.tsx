@@ -59,6 +59,11 @@ const detail: VerificationDetail = {
   checks: [],
   screening: null,
   history: [],
+  missing_requirements: [
+    "linkedin_reviewed",
+    "professional_evidence_reviewed",
+    "screening_call_passed",
+  ],
 };
 
 describe("InterviewerReview", () => {
@@ -93,33 +98,14 @@ describe("InterviewerReview", () => {
     expect(screen.getByText(/No previous review actions/)).toBeInTheDocument();
   });
 
-  it("approves only with professional review and a passed screening result", async () => {
+  it("does not let final approval fabricate professional prerequisites", async () => {
     render(<InterviewerReview />);
     const approve = await screen.findByRole("button", { name: "Approve" });
     expect(approve).toBeDisabled();
-    fireEvent.click(screen.getByLabelText("I reviewed the LinkedIn profile"));
-    fireEvent.click(
-      screen.getByLabelText("I reviewed the professional evidence"),
-    );
-    fireEvent.click(
-      screen.getByLabelText("The interviewer passed the screening call"),
-    );
-    fireEvent.click(approve);
-    await screen.findByText("Verification status updated.");
-    expect(mocks.request).toHaveBeenCalledWith(
-      `/v1/interviewers/admin/interviewers/${profile.user_id}/verification/review`,
-      expect.objectContaining({
-        method: "POST",
-        body: expect.objectContaining({
-          action: "verify",
-          checks: expect.objectContaining({
-            linkedin_reviewed: true,
-            professional_evidence_reviewed: true,
-          }),
-          screening: expect.objectContaining({ screening_status: "passed" }),
-        }),
-      }),
-    );
+    expect(
+      screen.queryByLabelText("I reviewed the LinkedIn profile"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText("Cannot approve yet")).toBeInTheDocument();
   });
 
   it("requires a reason when requesting more evidence", async () => {
@@ -146,6 +132,33 @@ describe("InterviewerReview", () => {
             reason: "Provide proof of company-email ownership",
           },
         },
+      ),
+    );
+  });
+
+  it("requires confirmation and a reason before soft deletion", async () => {
+    mocks.request.mockImplementation((path: string) => {
+      if (path === "/v1/interviewers/admin/interviewers")
+        return Promise.resolve([profile]);
+      if (path.endsWith("/verification")) return Promise.resolve(detail);
+      if (path.endsWith("/delete")) return Promise.resolve(profile);
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    render(<InterviewerReview />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete interviewer" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Confirm delete" }),
+    ).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Deletion reason"), {
+      target: { value: "Repeated policy violations" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        `/v1/interviewers/admin/interviewers/${profile.user_id}/delete`,
+        { method: "POST", body: { reason: "Repeated policy violations" } },
       ),
     );
   });

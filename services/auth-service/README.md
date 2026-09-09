@@ -37,3 +37,13 @@ python -m app.scripts.create_admin
 Omit `ROUNDREADY_ADMIN_PASSWORD` to enter it securely at the prompt. Re-running the command for an
 existing admin leaves its password and account unchanged. It refuses to promote an existing
 Candidate or Interviewer account.
+
+To reconcile a trusted Admin created before account-email verification, run this explicit command
+from the auth-service execution environment. It verifies that the credential is already an Admin
+and does not change its password:
+
+```bash
+python -m app.scripts.create_admin \
+  --email admin@example.in \
+  --reconcile-email-verification
+```

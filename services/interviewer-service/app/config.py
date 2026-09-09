@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     contact_challenge_ttl_seconds: int = Field(default=300, ge=60, le=900)
     contact_resend_cooldown_seconds: int = Field(default=60, ge=10, le=600)
     contact_max_attempts: int = Field(default=5, ge=1, le=10)
+    booking_service_url: str = Field(
+        default="http://localhost:8004", validation_alias="BOOKING_SERVICE_URL"
+    )
     rabbitmq_url: str = "amqp://guest:guest@localhost:5672/"
     rabbitmq_exchange: str = Field(
         default="roundready.events", validation_alias="RABBITMQ_EXCHANGE"

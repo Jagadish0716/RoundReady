@@ -74,6 +74,7 @@ export interface VerificationDetail {
   mobile_verified?: boolean;
   company_email?: string | null;
   company_email_verified?: boolean;
+  missing_requirements?: VerificationCheckType[];
 }
 
 export interface ContactChallenge {
@@ -120,6 +121,9 @@ export interface InterviewerProfile extends Omit<
   rating_count: number;
   completed_interviews: number;
   reliability_score: string;
+  deleted_at?: string | null;
+  deleted_by_admin_id?: string | null;
+  deletion_reason?: string | null;
   created_at: string;
   updated_at: string;
 }

@@ -16,6 +16,7 @@ from app.domain.security import hash_password
 class ProvisionResult(StrEnum):
     CREATED = "created"
     ALREADY_EXISTS = "already_exists"
+    RECONCILED = "reconciled"
 
 
 async def provision_admin(session: AsyncSession, email: str, password: str) -> ProvisionResult:
@@ -39,6 +40,24 @@ async def provision_admin(session: AsyncSession, email: str, password: str) -> P
     return ProvisionResult.CREATED
 
 
+async def reconcile_admin_email_verification(
+    session: AsyncSession, email: str
+) -> ProvisionResult:
+    normalized_email = str(validate_email(email, check_deliverability=False).normalized).lower()
+    existing = await session.scalar(
+        select(Credential).where(Credential.email == normalized_email).with_for_update()
+    )
+    if existing is None:
+        raise ValueError("admin account does not exist; provision it before reconciliation")
+    if existing.role is not Role.ADMIN:
+        raise ValueError("email belongs to a non-admin account")
+    if existing.email_verified_at is not None:
+        return ProvisionResult.ALREADY_EXISTS
+    existing.email_verified_at = datetime.now(UTC)
+    await session.commit()
+    return ProvisionResult.RECONCILED
+
+
 async def run(email: str, password: str) -> ProvisionResult:
     from app.infrastructure.database import session_factory
 
@@ -46,16 +65,33 @@ async def run(email: str, password: str) -> ProvisionResult:
         return await provision_admin(session, email, password)
 
 
+async def reconcile(email: str) -> ProvisionResult:
+    from app.infrastructure.database import session_factory
+
+    async with session_factory() as session:
+        return await reconcile_admin_email_verification(session, email)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Create RoundReady's initial admin account if it does not exist."
     )
     parser.add_argument("--email", default=os.getenv("ROUNDREADY_ADMIN_EMAIL"))
+    parser.add_argument(
+        "--reconcile-email-verification",
+        action="store_true",
+        help="mark an existing trusted Admin email verified without changing its password",
+    )
     arguments = parser.parse_args()
     email = arguments.email or input("Admin email: ").strip()
-    password = os.getenv("ROUNDREADY_ADMIN_PASSWORD") or getpass.getpass("Admin password: ")
     try:
-        result = asyncio.run(run(email, password))
+        if arguments.reconcile_email_verification:
+            result = asyncio.run(reconcile(email))
+        else:
+            password = os.getenv("ROUNDREADY_ADMIN_PASSWORD") or getpass.getpass(
+                "Admin password: "
+            )
+            result = asyncio.run(run(email, password))
     except (EmailNotValidError, ValueError) as exc:
         parser.error(str(exc))
     print(f"Admin provisioning: {result.value}")

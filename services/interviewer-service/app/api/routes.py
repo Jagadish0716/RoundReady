@@ -9,11 +9,14 @@ from app.api.schemas import (
     ChallengeVerifyRequest,
     CompanyEmailVerificationRequest,
     EvidenceInput,
+    EvidenceReviewRequest,
+    InterviewerDeleteRequest,
     MobileVerificationRequest,
     ProfileResponse,
     ProfileUpsertRequest,
     PublicInterviewerResponse,
     RejectionRequest,
+    ScreeningReviewRequest,
     SkillReplaceRequest,
     SkillResponse,
     SuspensionRequest,
@@ -261,6 +264,21 @@ async def admin_list_interviewers(
     ]
 
 
+@router.post("/admin/interviewers/{interviewer_id}/delete", response_model=ProfileResponse)
+async def delete_interviewer(
+    interviewer_id: UUID,
+    request: InterviewerDeleteRequest,
+    admin: AdminIdentity,
+    session: DatabaseSession,
+    settings: AppSettings,
+) -> ProfileResponse:
+    return ProfileResponse.model_validate(
+        await InterviewerService(session, settings).delete_interviewer(
+            interviewer_id, admin.user_id, request.reason
+        )
+    )
+
+
 @router.get(
     "/admin/interviewers/{interviewer_id}/verification",
     response_model=VerificationDetailResponse,
@@ -286,6 +304,53 @@ async def review_verification(
 ) -> VerificationDetailResponse:
     return VerificationDetailResponse.model_validate(
         await InterviewerService(session).review_verification(
+            interviewer_id, admin.user_id, request
+        )
+    )
+
+
+@router.post(
+    "/admin/interviewers/{interviewer_id}/verification/linkedin-review",
+    response_model=VerificationDetailResponse,
+)
+async def review_linkedin(
+    interviewer_id: UUID, admin: AdminIdentity, session: DatabaseSession
+) -> VerificationDetailResponse:
+    return VerificationDetailResponse.model_validate(
+        await InterviewerService(session).review_linkedin(interviewer_id, admin.user_id)
+    )
+
+
+@router.post(
+    "/admin/interviewers/{interviewer_id}/verification/evidence/{evidence_id}/review",
+    response_model=VerificationDetailResponse,
+)
+async def review_evidence(
+    interviewer_id: UUID,
+    evidence_id: UUID,
+    request: EvidenceReviewRequest,
+    admin: AdminIdentity,
+    session: DatabaseSession,
+) -> VerificationDetailResponse:
+    return VerificationDetailResponse.model_validate(
+        await InterviewerService(session).review_evidence(
+            interviewer_id, evidence_id, admin.user_id, request.status, request.notes
+        )
+    )
+
+
+@router.post(
+    "/admin/interviewers/{interviewer_id}/verification/screening",
+    response_model=VerificationDetailResponse,
+)
+async def record_screening(
+    interviewer_id: UUID,
+    request: ScreeningReviewRequest,
+    admin: AdminIdentity,
+    session: DatabaseSession,
+) -> VerificationDetailResponse:
+    return VerificationDetailResponse.model_validate(
+        await InterviewerService(session).record_screening(
             interviewer_id, admin.user_id, request
         )
     )

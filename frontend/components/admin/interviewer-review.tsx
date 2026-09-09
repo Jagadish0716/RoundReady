@@ -6,8 +6,13 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { ApiClientError } from "@/lib/api/client";
 import {
+  approveInterviewer,
+  deleteInterviewer,
   getAllInterviewers,
   getVerificationDetail,
+  markLinkedinReviewed,
+  recordScreening,
+  reviewEvidence,
   reviewVerification,
 } from "@/lib/api/interviewer";
 import { isInterviewerProfileComplete } from "@/lib/interviewer-profile";
@@ -20,7 +25,19 @@ import type {
 type Action = VerificationReviewInput["action"];
 
 function messageFor(error: unknown): string {
-  if (error instanceof ApiClientError && error.status === 409)
+  if (
+    error instanceof ApiClientError &&
+    error.code === "verification_prerequisites_incomplete"
+  ) {
+    const missing = Array.isArray(error.details?.missing)
+      ? error.details.missing.join(", ").replaceAll("_", " ")
+      : "required verification checks";
+    return `Cannot approve yet. Complete: ${missing}.`;
+  }
+  if (
+    error instanceof ApiClientError &&
+    error.code === "invalid_verification_transition"
+  )
     return "This verification action is no longer valid. Refresh and review the current status.";
   if (error instanceof ApiClientError) return error.message;
   return "Unable to load interviewer reviews.";
@@ -32,13 +49,13 @@ export function InterviewerReview() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<VerificationDetail | null>(null);
   const [reason, setReason] = useState("");
-  const [professionalReviewed, setProfessionalReviewed] = useState(false);
-  const [linkedinReviewed, setLinkedinReviewed] = useState(false);
-  const [screeningPassed, setScreeningPassed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeAction, setActiveAction] = useState<Action | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showDelete, setShowDelete] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+  const [deleting, setDeleting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -79,6 +96,10 @@ export function InterviewerReview() {
 
   const selected =
     profiles.find((profile) => profile.user_id === selectedId) ?? null;
+  const missingRequirements = detail?.missing_requirements ?? [];
+  const hasPassed = (check: string) =>
+    detail?.checks.some((item) => item.check_type === check && item.passed) ??
+    false;
 
   useEffect(() => {
     let active = true;
@@ -112,21 +133,9 @@ export function InterviewerReview() {
     try {
       const body: VerificationReviewInput = { action };
       if (needsReason) body.reason = reason.trim();
-      if (action === "verify") {
-        body.checks = {
-          linkedin_reviewed: linkedinReviewed,
-          professional_evidence_reviewed: professionalReviewed,
-          screening_call_passed: screeningPassed,
-        };
-        body.screening = {
-          screening_status: screeningPassed ? "passed" : "failed",
-          reviewer_notes: reason.trim() || null,
-          communication_assessment: "reviewed",
-          technical_assessment: "reviewed",
-          overall_result: "passed",
-        };
-      }
-      await reviewVerification(request, selected.user_id, body);
+      if (action === "verify")
+        await approveInterviewer(request, selected.user_id);
+      else await reviewVerification(request, selected.user_id, body);
       setNotice("Verification status updated.");
       setReason("");
       await load();
@@ -134,6 +143,64 @@ export function InterviewerReview() {
       setError(messageFor(caught));
     } finally {
       setActiveAction(null);
+    }
+  }
+
+  async function professionalAction(
+    action: "linkedin" | "schedule" | "pass" | "evidence",
+    evidenceId?: string,
+  ) {
+    if (!selected || activeAction) return;
+    setActiveAction("under_review");
+    setError(null);
+    try {
+      if (action === "linkedin")
+        await markLinkedinReviewed(request, selected.user_id);
+      if (action === "evidence" && evidenceId)
+        await reviewEvidence(
+          request,
+          selected.user_id,
+          evidenceId,
+          "verified",
+          reason.trim(),
+        );
+      if (action === "schedule")
+        await recordScreening(
+          request,
+          selected.user_id,
+          "pending",
+          reason.trim(),
+        );
+      if (action === "pass")
+        await recordScreening(
+          request,
+          selected.user_id,
+          "passed",
+          reason.trim(),
+        );
+      setDetail(await getVerificationDetail(request, selected.user_id));
+      setNotice("Authoritative verification state updated.");
+    } catch (caught) {
+      setError(messageFor(caught));
+    } finally {
+      setActiveAction(null);
+    }
+  }
+
+  async function removeInterviewer() {
+    if (!selected || deleting || deleteReason.trim().length < 3) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await deleteInterviewer(request, selected.user_id, deleteReason.trim());
+      setShowDelete(false);
+      setDeleteReason("");
+      setNotice("Interviewer deleted from active use and public discovery.");
+      await load();
+    } catch (caught) {
+      setError(messageFor(caught));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -186,9 +253,6 @@ export function InterviewerReview() {
                     setDetail(null);
                     setSelectedId(profile.user_id);
                     setReason("");
-                    setProfessionalReviewed(false);
-                    setLinkedinReviewed(false);
-                    setScreeningPassed(false);
                     setError(null);
                   }}
                 >
@@ -357,42 +421,94 @@ export function InterviewerReview() {
                   maxLength={1000}
                 />
               </label>
-              {selected.verification_status === "under_review" && (
-                <fieldset className="space-y-2 rounded border p-3 text-sm">
-                  <legend className="px-1 font-medium">
-                    Required approval attestations
-                  </legend>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={linkedinReviewed}
-                      onChange={(event) =>
-                        setLinkedinReviewed(event.target.checked)
-                      }
-                    />
-                    I reviewed the LinkedIn profile
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={professionalReviewed}
-                      onChange={(event) =>
-                        setProfessionalReviewed(event.target.checked)
-                      }
-                    />
-                    I reviewed the professional evidence
-                  </label>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={screeningPassed}
-                      onChange={(event) =>
-                        setScreeningPassed(event.target.checked)
-                      }
-                    />
-                    The interviewer passed the screening call
-                  </label>
-                </fieldset>
+              {selected.verification_status === "under_review" && detail && (
+                <div className="space-y-4 rounded border p-3 text-sm">
+                  <section>
+                    <h3 className="font-semibold">Professional review</h3>
+                    <p>
+                      LinkedIn:{" "}
+                      {hasPassed("linkedin_reviewed") ? "Reviewed" : "Pending"}
+                    </p>
+                    {!hasPassed("linkedin_reviewed") &&
+                      selected.linkedin_url && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => void professionalAction("linkedin")}
+                        >
+                          Mark LinkedIn reviewed
+                        </Button>
+                      )}
+                    <p className="mt-2">
+                      Professional evidence:{" "}
+                      {detail.evidence.length
+                        ? hasPassed("professional_evidence_reviewed")
+                          ? "Reviewed"
+                          : "Pending"
+                        : "No evidence submitted"}
+                    </p>
+                    {detail.evidence
+                      .filter((item) => item.status === "pending")
+                      .map((item) => (
+                        <Button
+                          key={item.id}
+                          type="button"
+                          variant="outline"
+                          onClick={() =>
+                            void professionalAction("evidence", item.id)
+                          }
+                        >
+                          Accept {item.evidence_type.replaceAll("_", " ")}
+                        </Button>
+                      ))}
+                  </section>
+                  <section>
+                    <h3 className="font-semibold">Screening</h3>
+                    <p>
+                      Status:{" "}
+                      {detail.screening?.screening_status ?? "not scheduled"}
+                    </p>
+                    {!detail.screening && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void professionalAction("schedule")}
+                      >
+                        Schedule screening
+                      </Button>
+                    )}
+                    {detail.screening?.screening_status === "pending" && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void professionalAction("pass")}
+                      >
+                        Record screening passed
+                      </Button>
+                    )}
+                  </section>
+                  <section>
+                    <h3 className="font-semibold">
+                      Final approval requirements
+                    </h3>
+                    {missingRequirements.length ? (
+                      <>
+                        <p className="font-medium text-amber-700">
+                          Cannot approve yet
+                        </p>
+                        <ul>
+                          {missingRequirements.map((item) => (
+                            <li key={item}>❌ {item.replaceAll("_", " ")}</li>
+                          ))}
+                        </ul>
+                      </>
+                    ) : (
+                      <p className="text-green-700">
+                        All prerequisites complete.
+                      </p>
+                    )}
+                  </section>
+                </div>
               )}
               <div className="flex flex-wrap gap-2">
                 {selected.verification_status === "under_review" && (
@@ -400,9 +516,8 @@ export function InterviewerReview() {
                     <Button
                       disabled={
                         activeAction !== null ||
-                        !professionalReviewed ||
-                        !linkedinReviewed ||
-                        !screeningPassed
+                        !detail ||
+                        missingRequirements.length > 0
                       }
                       onClick={() => void perform("verify")}
                     >
@@ -450,7 +565,59 @@ export function InterviewerReview() {
                     Reactivate
                   </Button>
                 )}
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={activeAction !== null || deleting}
+                  onClick={() => setShowDelete(true)}
+                  className="text-red-700"
+                >
+                  Delete interviewer
+                </Button>
               </div>
+              {showDelete && (
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="delete-title"
+                  className="rounded-lg border border-red-200 bg-red-50 p-4"
+                >
+                  <h3 id="delete-title" className="font-semibold">
+                    Confirm interviewer deletion
+                  </h3>
+                  <p className="text-sm">
+                    This removes the interviewer from active use and public
+                    discovery while preserving audit and interview history.
+                  </p>
+                  <label className="mt-3 block text-sm">
+                    <span>Deletion reason</span>
+                    <textarea
+                      aria-label="Deletion reason"
+                      className="mt-1 min-h-20 w-full rounded border bg-white p-2"
+                      value={deleteReason}
+                      onChange={(event) => setDeleteReason(event.target.value)}
+                      maxLength={1000}
+                    />
+                  </label>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      type="button"
+                      disabled={deleting || deleteReason.trim().length < 3}
+                      onClick={() => void removeInterviewer()}
+                    >
+                      Confirm delete
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={deleting}
+                      onClick={() => setShowDelete(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
             </article>
           )}
         </div>

@@ -10,6 +10,7 @@ from app.domain.models import (
     OutboxEvent,
     RefreshToken,
     RevokedAccessToken,
+    Role,
 )
 from app.domain.security import (
     AccessClaims,
@@ -101,7 +102,7 @@ class AuthService:
 
     async def resend_verification(self, email: str, next_url: str | None = None) -> None:
         credential = await self._credential_by_email(email.strip().lower())
-        if credential is None or credential.email_verified:
+        if credential is None or credential.role is Role.ADMIN or credential.email_verified:
             return
         now = datetime.now(UTC)
         latest = await self._session.scalar(
