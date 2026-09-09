@@ -34,19 +34,28 @@ def approve_interviewer(
     assert client.post(f"{base}/linkedin-review", headers=admin).status_code == 200
     detail = client.get(base, headers=admin).json()
     evidence_id = detail["evidence"][0]["id"]
-    assert client.post(
-        f"{base}/evidence/{evidence_id}/review",
-        headers=admin,
-        json={"status": "verified"},
-    ).status_code == 200
-    assert client.post(
-        f"{base}/screening", headers=admin, json={"screening_status": "pending"}
-    ).status_code == 200
-    assert client.post(
-        f"{base}/screening",
-        headers=admin,
-        json={"screening_status": "passed", "overall_result": "passed"},
-    ).status_code == 200
+    assert (
+        client.post(
+            f"{base}/evidence/{evidence_id}/review",
+            headers=admin,
+            json={"status": "verified"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"{base}/screening", headers=admin, json={"screening_status": "pending"}
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"{base}/screening",
+            headers=admin,
+            json={"screening_status": "passed", "overall_result": "passed"},
+        ).status_code
+        == 200
+    )
     response = client.post(
         f"/v1/admin/interviewers/{interviewer['X-User-ID']}/approve", headers=admin
     )
@@ -354,13 +363,13 @@ def test_skills_are_owned_and_replaceable(
         "skills": [
             {
                 "domain": "Backend",
-                "topic": "Distributed Systems",
+                "topic": "python",
                 "skill_name": "Python",
                 "experience_years": "10.0",
             },
             {
                 "domain": "AWS",
-                "topic": "Architecture",
+                "topic": "ecs",
                 "skill_name": "ECS",
                 "experience_years": "6.0",
             },
@@ -369,6 +378,72 @@ def test_skills_are_owned_and_replaceable(
     response = client.put("/v1/me/skills", headers=interviewer_headers, json=payload)
     assert response.status_code == 200
     assert {item["domain"] for item in response.json()} == {"Backend", "AWS"}
+    invalid = client.put(
+        "/v1/me/skills",
+        headers=interviewer_headers,
+        json={
+            "skills": [
+                {
+                    "domain": "DevOps",
+                    "topic": "made-up",
+                    "skill_name": "Made Up",
+                    "experience_years": "2.0",
+                }
+            ]
+        },
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "invalid_catalog_skill"
+    assert len(client.get("/v1/me/skills", headers=interviewer_headers).json()) == 2
+
+
+def test_legacy_skill_rows_are_preserved_during_catalog_save(
+    client: TestClient,
+    interviewer_headers: dict[str, str],
+    profile: dict[str, object],
+    postgres_url: str,
+) -> None:
+    user_id = create_profile(client, interviewer_headers, profile)["user_id"]
+    legacy = {
+        "domain": "Backend",
+        "topic": "Legacy topic",
+        "skill_name": "Legacy framework",
+        "experience_years": "3.0",
+    }
+    with psycopg.connect(postgres_url.replace("postgresql+psycopg", "postgresql")) as connection:
+        connection.execute(
+            """INSERT INTO interviewer_skills
+               (id, user_id, domain, topic, skill_name, experience_years)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (
+                uuid4(),
+                user_id,
+                legacy["domain"],
+                legacy["topic"],
+                legacy["skill_name"],
+                legacy["experience_years"],
+            ),
+        )
+    response = client.put(
+        "/v1/me/skills",
+        headers=interviewer_headers,
+        json={
+            "skills": [
+                legacy,
+                {
+                    "domain": "Backend",
+                    "topic": "python",
+                    "skill_name": "Python",
+                    "experience_years": "3.0",
+                },
+            ]
+        },
+    )
+    assert response.status_code == 200
+    assert {item["skill_name"] for item in response.json()} == {
+        "Legacy framework",
+        "Python",
+    }
 
 
 def test_verification_approve_suspend_reactivate_and_events(
@@ -513,15 +588,77 @@ def test_weekly_availability_and_blockouts_publish_changes(
         json={
             "rules": [
                 {
-                    "weekday": 1,
+                    "weekday": 0,
                     "start_time": "18:00",
                     "end_time": "20:00",
+                    "timezone": "Asia/Kolkata",
+                },
+                {
+                    "weekday": 2,
+                    "start_time": "18:00",
+                    "end_time": "20:00",
+                    "timezone": "Asia/Kolkata",
+                },
+            ]
+        },
+    )
+    assert weekly.status_code == 200
+    assert [
+        (item["weekday"], item["start_time"], item["end_time"], item["timezone"])
+        for item in client.get("/v1/me/availability/weekly", headers=interviewer_headers).json()
+    ] == [
+        (0, "18:00:00", "20:00:00", "Asia/Kolkata"),
+        (2, "18:00:00", "20:00:00", "Asia/Kolkata"),
+    ]
+    invalid_range = client.put(
+        "/v1/me/availability/weekly",
+        headers=interviewer_headers,
+        json={
+            "rules": [
+                {
+                    "weekday": 0,
+                    "start_time": "20:00",
+                    "end_time": "18:00",
                     "timezone": "Asia/Kolkata",
                 }
             ]
         },
     )
-    assert weekly.status_code == 200
+    assert invalid_range.status_code == 422
+    assert "start_time must be before end_time" in str(invalid_range.json()["error"]["details"])
+    overlapping = client.put(
+        "/v1/me/availability/weekly",
+        headers=interviewer_headers,
+        json={
+            "rules": [
+                {
+                    "weekday": 0,
+                    "start_time": "18:00",
+                    "end_time": "20:00",
+                    "timezone": "Asia/Kolkata",
+                },
+                {
+                    "weekday": 0,
+                    "start_time": "19:00",
+                    "end_time": "21:00",
+                    "timezone": "Asia/Kolkata",
+                },
+            ]
+        },
+    )
+    assert overlapping.status_code == 422
+    assert "cannot overlap" in str(overlapping.json()["error"]["details"])
+    invalid_timezone = client.put(
+        "/v1/me/availability/weekly",
+        headers=interviewer_headers,
+        json={
+            "rules": [
+                {"weekday": 0, "start_time": "18:00", "end_time": "20:00", "timezone": "Not/AZone"}
+            ]
+        },
+    )
+    assert invalid_timezone.status_code == 422
+    assert "valid IANA timezone" in str(invalid_timezone.json()["error"]["details"])
     blockout = client.post(
         "/v1/me/availability/blockouts",
         headers=interviewer_headers,
@@ -597,9 +734,10 @@ def test_admin_soft_delete_is_idempotent_and_hidden(
     assert user_id not in {
         item["user_id"] for item in client.get("/v1/admin/interviewers", headers=admin).json()
     }
-    assert client.put("/v1/me/profile", headers=interviewer, json=profile).json()["error"][
-        "code"
-    ] == "interviewer_deleted"
+    assert (
+        client.put("/v1/me/profile", headers=interviewer, json=profile).json()["error"]["code"]
+        == "interviewer_deleted"
+    )
 
 
 def test_no_booking_or_auth_tables(client: TestClient, postgres_url: str) -> None:

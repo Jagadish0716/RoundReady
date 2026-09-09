@@ -10,12 +10,16 @@ import { Label } from "@/components/ui/label";
 import { ApiClientError } from "@/lib/api/client";
 import * as api from "@/lib/api/interviewer";
 import {
+  catalogForDomain,
+  interviewerSkillCatalog,
+} from "@/lib/interviewer-skill-catalog";
+import {
   validateInterviewerProfile,
   type InterviewerProfileErrors,
 } from "@/lib/interviewer-profile";
 import {
-  interviewerDomains,
   type Blockout,
+  type InterviewerDomainSelection,
   type InterviewerProfile,
   type InterviewerProfileInput,
   type InterviewerSkillInput,
@@ -32,18 +36,95 @@ const emptyProfile: InterviewerProfileInput = {
   github_url: null,
   bio: null,
 };
-const emptySkill: InterviewerSkillInput = {
+const emptyDomain: InterviewerDomainSelection = {
   domain: "Backend",
-  topic: "",
-  skill_name: "",
+  skill_ids: [],
   experience_years: "0.0",
 };
 const emptyRule: WeeklyRuleInput = {
-  weekday: 1,
+  weekday: 0,
   start_time: "18:00",
   end_time: "20:00",
   timezone: "Asia/Kolkata",
 };
+const weekdays = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+] as const;
+const fallbackTimezones = [
+  "Asia/Kolkata",
+  "America/New_York",
+  "Europe/London",
+  "UTC",
+];
+
+type RuleField = "start_time" | "end_time" | "timezone" | "range";
+type RuleErrors = Record<number, Partial<Record<RuleField, string>>>;
+
+export function canonicalTime(value: string): string | null {
+  const trimmed = value.trim();
+  const canonical = /^(\d{2}):(\d{2})(?::\d{2})?$/.exec(trimmed);
+  if (canonical) {
+    const hour = Number(canonical[1]);
+    const minute = Number(canonical[2]);
+    return hour < 24 && minute < 60 ? `${canonical[1]}:${canonical[2]}` : null;
+  }
+  const twelveHour = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec(trimmed);
+  if (!twelveHour) return null;
+  const hour = Number(twelveHour[1]);
+  const minute = Number(twelveHour[2]);
+  if (hour < 1 || hour > 12 || minute > 59) return null;
+  const converted =
+    (hour % 12) + (twelveHour[3].toUpperCase() === "PM" ? 12 : 0);
+  return `${String(converted).padStart(2, "0")}:${twelveHour[2]}`;
+}
+
+function availabilityErrors(rules: WeeklyRuleInput[]): RuleErrors {
+  const errors: RuleErrors = {};
+  const normalized = rules.map((rule, index) => {
+    const start = canonicalTime(rule.start_time);
+    const end = canonicalTime(rule.end_time);
+    if (!start) (errors[index] ??= {}).start_time = "Start time is invalid.";
+    if (!end) (errors[index] ??= {}).end_time = "End time is invalid.";
+    if (start && end && start >= end)
+      (errors[index] ??= {}).range = "End time must be later than start time.";
+    if (
+      !fallbackTimezones.includes(rule.timezone) &&
+      !(
+        typeof Intl.supportedValuesOf === "function" &&
+        Intl.supportedValuesOf("timeZone").includes(rule.timezone)
+      )
+    )
+      (errors[index] ??= {}).timezone =
+        `${rule.timezone || "Timezone"} is not a valid timezone.`;
+    return { ...rule, start_time: start, end_time: end, index };
+  });
+  for (let left = 0; left < normalized.length; left += 1)
+    for (let right = left + 1; right < normalized.length; right += 1) {
+      const a = normalized[left],
+        b = normalized[right];
+      if (
+        a.weekday === b.weekday &&
+        a.timezone === b.timezone &&
+        a.start_time &&
+        a.end_time &&
+        b.start_time &&
+        b.end_time &&
+        a.start_time < b.end_time &&
+        b.start_time < a.end_time
+      ) {
+        const message = `${weekdays[a.weekday]} availability overlaps another ${weekdays[a.weekday]} time range.`;
+        (errors[a.index] ??= {}).range = message;
+        (errors[b.index] ??= {}).range = message;
+      }
+    }
+  return errors;
+}
 
 function nullable(value: string): string | null {
   return value.trim() || null;
@@ -81,6 +162,49 @@ function validExperience(value: string): boolean {
   );
 }
 
+function groupSkills(
+  rows: InterviewerSkillInput[],
+): InterviewerDomainSelection[] {
+  const grouped = new Map<string, InterviewerDomainSelection>();
+  for (const row of rows) {
+    const entry = grouped.get(row.domain) ?? {
+      domain: row.domain,
+      skill_ids: [],
+      experience_years: row.experience_years,
+      legacy_skills: [],
+    };
+    const catalog = catalogForDomain(row.domain);
+    if (
+      catalog.skills.some(
+        (skill) => skill.id === row.topic && skill.label === row.skill_name,
+      )
+    )
+      entry.skill_ids.push(row.topic);
+    else entry.legacy_skills!.push(row);
+    grouped.set(row.domain, entry);
+  }
+  return [...grouped.values()];
+}
+
+function flattenDomains(
+  domains: InterviewerDomainSelection[],
+): InterviewerSkillInput[] {
+  return domains.flatMap((entry) => [
+    ...entry.skill_ids.map((skillId) => {
+      const skill = catalogForDomain(entry.domain).skills.find(
+        (item) => item.id === skillId,
+      )!;
+      return {
+        domain: entry.domain,
+        topic: skill.id,
+        skill_name: skill.label,
+        experience_years: entry.experience_years,
+      };
+    }),
+    ...(entry.legacy_skills ?? []),
+  ]);
+}
+
 export function InterviewerWorkspace({
   section = "all",
 }: {
@@ -91,7 +215,7 @@ export function InterviewerWorkspace({
   const [savedProfile, setSavedProfile] = useState<InterviewerProfile | null>(
     null,
   );
-  const [skills, setSkills] = useState<InterviewerSkillInput[]>([]);
+  const [skills, setSkills] = useState<InterviewerDomainSelection[]>([]);
   const [rules, setRules] = useState<WeeklyRuleInput[]>([]);
   const [blockouts, setBlockouts] = useState<Blockout[]>([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +225,16 @@ export function InterviewerWorkspace({
   const [profileErrors, setProfileErrors] = useState<InterviewerProfileErrors>(
     {},
   );
+  const [ruleErrors, setRuleErrors] = useState<RuleErrors>({});
   const profileForm = useRef<HTMLFormElement>(null);
+  const timezones = Array.from(
+    new Set([
+      ...fallbackTimezones,
+      ...(typeof Intl.supportedValuesOf === "function"
+        ? Intl.supportedValuesOf("timeZone")
+        : []),
+    ]),
+  ).sort();
 
   useEffect(() => {
     let active = true;
@@ -121,7 +254,8 @@ export function InterviewerWorkspace({
       )) {
         setError(errorMessage(profileResult.reason));
       }
-      if (skillsResult.status === "fulfilled") setSkills(skillsResult.value);
+      if (skillsResult.status === "fulfilled")
+        setSkills(groupSkills(skillsResult.value));
       if (rulesResult.status === "fulfilled") setRules(rulesResult.value);
       if (blockoutsResult.status === "fulfilled")
         setBlockouts(blockoutsResult.value);
@@ -185,14 +319,38 @@ export function InterviewerWorkspace({
   }
 
   async function saveSkills() {
-    if (skills.some((item) => !item.topic.trim() || !item.skill_name.trim()))
-      return setError("Every skill needs a topic and skill name.");
+    if (skills.length === 0)
+      return setError("Add at least one interview domain.");
+    const missingSkills = skills.find(
+      (item) => item.skill_ids.length === 0 && !item.legacy_skills?.length,
+    );
+    if (missingSkills)
+      return setError(
+        `Select at least one skill for ${catalogForDomain(missingSkills.domain).label}.`,
+      );
+    const missingExperience = skills.find(
+      (item) =>
+        !item.experience_years || !validExperience(item.experience_years),
+    );
+    if (missingExperience)
+      return setError(
+        `Enter your years of experience with ${catalogForDomain(missingExperience.domain).label}.`,
+      );
+    const overProfile = skills.find(
+      (item) =>
+        item.skill_ids.length > 0 &&
+        Number(item.experience_years) > Number(profile.experience_years),
+    );
+    if (overProfile)
+      return setError(
+        `Experience with ${catalogForDomain(overProfile.domain).label} cannot exceed your overall professional experience.`,
+      );
     setSaving("skills");
     setNotice(null);
     try {
-      const saved = await api.saveSkills(request, skills);
-      setSkills(saved);
-      feedback("Skills saved.");
+      const saved = await api.saveSkills(request, flattenDomains(skills));
+      setSkills(groupSkills(saved));
+      feedback("Skills and domains saved.");
     } catch (caught) {
       setError(errorMessage(caught));
     } finally {
@@ -201,16 +359,42 @@ export function InterviewerWorkspace({
   }
 
   async function saveRules() {
-    if (rules.some((rule) => rule.start_time >= rule.end_time))
-      return setError("Availability start time must be before end time.");
+    const validation = availabilityErrors(rules);
+    setRuleErrors(validation);
+    const firstError = Object.values(validation).flatMap(Object.values)[0];
+    if (firstError) return setError(firstError);
+    const canonicalRules = rules.map((rule) => ({
+      ...rule,
+      start_time: canonicalTime(rule.start_time)!,
+      end_time: canonicalTime(rule.end_time)!,
+    }));
     setSaving("rules");
     setNotice(null);
     try {
-      const saved = await api.saveWeeklyRules(request, rules);
+      const saved = await api.saveWeeklyRules(request, canonicalRules);
       setRules(saved);
+      setRuleErrors({});
       feedback("Weekly availability saved.");
     } catch (caught) {
-      setError(errorMessage(caught));
+      if (
+        caught instanceof ApiClientError &&
+        caught.code === "validation_error"
+      ) {
+        const errors = Array.isArray(caught.details?.errors)
+          ? caught.details.errors
+          : [];
+        const text = JSON.stringify(errors);
+        if (text.includes("overlap"))
+          setError("Availability ranges for the same day cannot overlap.");
+        else if (text.includes("timezone"))
+          setError("Select a valid IANA timezone.");
+        else if (text.includes("start_time"))
+          setError("Start time is invalid.");
+        else if (text.includes("end_time") || text.includes("before"))
+          setError("End time must be later than start time.");
+        else
+          setError("Check the highlighted availability fields and try again.");
+      } else setError(errorMessage(caught));
     } finally {
       setSaving(null);
     }
@@ -439,91 +623,137 @@ export function InterviewerWorkspace({
         <section className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-semibold">Skills and domains</h2>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() =>
-                setSkills((items) => [...items, { ...emptySkill }])
-              }
-            >
-              Add skill
-            </Button>
           </div>
           {skills.length === 0 ? (
             <p className="text-sm text-neutral-600">No skills added.</p>
           ) : (
-            skills.map((skill, index) => (
+            skills.map((selection, index) => (
               <div
-                className="grid gap-2 rounded-md border p-3 sm:grid-cols-5"
-                key={index}
+                className="space-y-5 rounded-lg border p-4"
+                key={selection.domain}
               >
-                <select
-                  aria-label={`Domain ${index + 1}`}
-                  className="h-10 rounded-md border px-2 text-sm"
-                  value={skill.domain}
-                  onChange={(event) =>
-                    setSkills((items) =>
-                      items.map((item, i) =>
-                        i === index
-                          ? {
-                              ...item,
-                              domain: event.target
-                                .value as InterviewerSkillInput["domain"],
+                <div>
+                  <Label htmlFor={`domain-${index}`}>Domain *</Label>
+                  <select
+                    id={`domain-${index}`}
+                    aria-label={`Domain ${index + 1}`}
+                    className="mt-1 h-10 w-full rounded-md border px-2 text-sm"
+                    value={selection.domain}
+                    onChange={(event) =>
+                      setSkills((items) =>
+                        items.map((item, i) =>
+                          i === index
+                            ? {
+                                ...emptyDomain,
+                                domain: event.target
+                                  .value as InterviewerSkillInput["domain"],
+                              }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    {interviewerSkillCatalog.map((domain) => (
+                      <option
+                        key={domain.id}
+                        value={domain.id}
+                        disabled={skills.some(
+                          (item, i) => i !== index && item.domain === domain.id,
+                        )}
+                      >
+                        {domain.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <fieldset>
+                  <legend className="font-medium">Skills *</legend>
+                  <p className="mb-3 text-sm text-slate-600">
+                    Select the skills you can confidently interview candidates
+                    on.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {catalogForDomain(selection.domain).skills.map((skill) => {
+                      const selectedSkill = selection.skill_ids.includes(
+                        skill.id,
+                      );
+                      return (
+                        <label
+                          key={skill.id}
+                          className={`cursor-pointer rounded-full border px-3 py-2 text-sm ${selectedSkill ? "border-blue-600 bg-blue-50 text-blue-800" : "border-slate-300"}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="sr-only"
+                            aria-label={skill.label}
+                            checked={selectedSkill}
+                            onChange={() =>
+                              setSkills((items) =>
+                                items.map((item, i) =>
+                                  i === index
+                                    ? {
+                                        ...item,
+                                        skill_ids: selectedSkill
+                                          ? item.skill_ids.filter(
+                                              (id) => id !== skill.id,
+                                            )
+                                          : [...item.skill_ids, skill.id],
+                                      }
+                                    : item,
+                                ),
+                              )
                             }
-                          : item,
-                      ),
-                    )
-                  }
-                >
-                  {interviewerDomains.map((domain) => (
-                    <option key={domain}>{domain}</option>
-                  ))}
-                </select>
-                <Input
-                  aria-label={`Topic ${index + 1}`}
-                  placeholder="Topic"
-                  value={skill.topic}
-                  onChange={(event) =>
-                    setSkills((items) =>
-                      items.map((item, i) =>
-                        i === index
-                          ? { ...item, topic: event.target.value }
-                          : item,
-                      ),
-                    )
-                  }
-                />
-                <Input
-                  aria-label={`Skill ${index + 1}`}
-                  placeholder="Skill"
-                  value={skill.skill_name}
-                  onChange={(event) =>
-                    setSkills((items) =>
-                      items.map((item, i) =>
-                        i === index
-                          ? { ...item, skill_name: event.target.value }
-                          : item,
-                      ),
-                    )
-                  }
-                />
-                <Input
-                  aria-label={`Skill experience ${index + 1}`}
-                  type="number"
-                  min="0"
-                  max="60"
-                  step="0.1"
-                  value={skill.experience_years}
-                  onChange={(event) =>
-                    setSkills((items) =>
-                      items.map((item, i) =>
-                        i === index
-                          ? { ...item, experience_years: event.target.value }
-                          : item,
-                      ),
-                    )
-                  }
-                />
+                          />
+                          {skill.label}
+                        </label>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+                {selection.legacy_skills &&
+                  selection.legacy_skills.length > 0 && (
+                    <div className="rounded bg-amber-50 p-3 text-sm text-amber-900">
+                      <p className="font-medium">Previously saved skills</p>
+                      <p>
+                        These legacy entries are preserved:{" "}
+                        {selection.legacy_skills
+                          .map((item) => item.skill_name)
+                          .join(", ")}
+                        .
+                      </p>
+                    </div>
+                  )}
+                <div>
+                  <Label htmlFor={`domain-experience-${index}`}>
+                    Experience in this domain *
+                  </Label>
+                  <div className="mt-1 flex items-center gap-2">
+                    <Input
+                      id={`domain-experience-${index}`}
+                      aria-label={`Experience in ${catalogForDomain(selection.domain).label}`}
+                      type="text"
+                      inputMode="decimal"
+                      value={selection.experience_years}
+                      onChange={(event) => {
+                        if (validExperience(event.target.value))
+                          setSkills((items) =>
+                            items.map((item, i) =>
+                              i === index
+                                ? {
+                                    ...item,
+                                    experience_years: event.target.value,
+                                  }
+                                : item,
+                            ),
+                          );
+                      }}
+                    />
+                    <span>years</span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-600">
+                    How many years have you worked with this domain?
+                  </p>
+                </div>
                 <Button
                   type="button"
                   variant="outline"
@@ -531,17 +761,34 @@ export function InterviewerWorkspace({
                     setSkills((items) => items.filter((_, i) => i !== index))
                   }
                 >
-                  Remove
+                  Remove domain
                 </Button>
               </div>
             ))
           )}
           <Button
             type="button"
+            variant="outline"
+            disabled={skills.length >= interviewerSkillCatalog.length}
+            onClick={() => {
+              const available = interviewerSkillCatalog.find(
+                (domain) => !skills.some((item) => item.domain === domain.id),
+              );
+              if (available)
+                setSkills((items) => [
+                  ...items,
+                  { ...emptyDomain, domain: available.id },
+                ]);
+            }}
+          >
+            + Add another domain
+          </Button>
+          <Button
+            type="button"
             disabled={saving !== null}
             onClick={() => void saveSkills()}
           >
-            {saving === "skills" ? "Saving…" : "Save skills"}
+            {saving === "skills" ? "Saving…" : "Save skills & domains"}
           </Button>
         </section>
       )}
@@ -565,79 +812,120 @@ export function InterviewerWorkspace({
           ) : (
             rules.map((rule, index) => (
               <div
-                className="grid gap-2 rounded-md border p-3 sm:grid-cols-5"
+                className="grid gap-3 rounded-md border p-3 sm:grid-cols-5"
                 key={index}
               >
-                <select
-                  aria-label={`Weekday ${index + 1}`}
-                  className="h-10 rounded-md border px-2 text-sm"
-                  value={rule.weekday}
-                  onChange={(event) =>
-                    setRules((items) =>
-                      items.map((item, i) =>
-                        i === index
-                          ? { ...item, weekday: Number(event.target.value) }
-                          : item,
-                      ),
-                    )
-                  }
-                >
-                  {[
-                    "Monday",
-                    "Tuesday",
-                    "Wednesday",
-                    "Thursday",
-                    "Friday",
-                    "Saturday",
-                    "Sunday",
-                  ].map((day, i) => (
-                    <option value={i} key={day}>
-                      {day}
-                    </option>
-                  ))}
-                </select>
-                <Input
-                  aria-label={`Start time ${index + 1}`}
-                  type="time"
-                  value={rule.start_time}
-                  onChange={(event) =>
-                    setRules((items) =>
-                      items.map((item, i) =>
-                        i === index
-                          ? { ...item, start_time: event.target.value }
-                          : item,
-                      ),
-                    )
-                  }
-                />
-                <Input
-                  aria-label={`End time ${index + 1}`}
-                  type="time"
-                  value={rule.end_time}
-                  onChange={(event) =>
-                    setRules((items) =>
-                      items.map((item, i) =>
-                        i === index
-                          ? { ...item, end_time: event.target.value }
-                          : item,
-                      ),
-                    )
-                  }
-                />
-                <Input
-                  aria-label={`Timezone ${index + 1}`}
-                  value={rule.timezone}
-                  onChange={(event) =>
-                    setRules((items) =>
-                      items.map((item, i) =>
-                        i === index
-                          ? { ...item, timezone: event.target.value }
-                          : item,
-                      ),
-                    )
-                  }
-                />
+                <div>
+                  <Label htmlFor={`weekday-${index}`}>Day</Label>
+                  <select
+                    id={`weekday-${index}`}
+                    aria-label={`Weekday ${index + 1}`}
+                    className="mt-1 h-10 w-full rounded-md border px-2 text-sm"
+                    value={rule.weekday}
+                    onChange={(event) =>
+                      setRules((items) =>
+                        items.map((item, i) =>
+                          i === index
+                            ? { ...item, weekday: Number(event.target.value) }
+                            : item,
+                        ),
+                      )
+                    }
+                  >
+                    {weekdays.map((day, i) => (
+                      <option value={i} key={day}>
+                        {day}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor={`start-time-${index}`}>Start time</Label>
+                  <Input
+                    id={`start-time-${index}`}
+                    className="mt-1"
+                    aria-label={`Start time ${index + 1}`}
+                    type="time"
+                    value={rule.start_time}
+                    onChange={(event) =>
+                      setRules((items) =>
+                        items.map((item, i) =>
+                          i === index
+                            ? { ...item, start_time: event.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                    aria-invalid={Boolean(
+                      ruleErrors[index]?.start_time || ruleErrors[index]?.range,
+                    )}
+                  />
+                  {ruleErrors[index]?.start_time && (
+                    <p className="mt-1 text-xs text-red-700">
+                      {ruleErrors[index].start_time}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <Label htmlFor={`end-time-${index}`}>End time</Label>
+                  <Input
+                    id={`end-time-${index}`}
+                    className="mt-1"
+                    aria-label={`End time ${index + 1}`}
+                    type="time"
+                    value={rule.end_time}
+                    onChange={(event) =>
+                      setRules((items) =>
+                        items.map((item, i) =>
+                          i === index
+                            ? { ...item, end_time: event.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                    aria-invalid={Boolean(
+                      ruleErrors[index]?.end_time || ruleErrors[index]?.range,
+                    )}
+                  />
+                  {(ruleErrors[index]?.end_time ||
+                    ruleErrors[index]?.range) && (
+                    <p className="mt-1 text-xs text-red-700">
+                      {ruleErrors[index].end_time || ruleErrors[index].range}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <Label htmlFor={`timezone-${index}`}>Timezone</Label>
+                  <select
+                    id={`timezone-${index}`}
+                    className="mt-1 h-10 w-full rounded-md border px-2 text-sm"
+                    aria-label={`Timezone ${index + 1}`}
+                    value={rule.timezone}
+                    onChange={(event) =>
+                      setRules((items) =>
+                        items.map((item, i) =>
+                          i === index
+                            ? { ...item, timezone: event.target.value }
+                            : item,
+                        ),
+                      )
+                    }
+                    aria-invalid={Boolean(ruleErrors[index]?.timezone)}
+                  >
+                    {timezones.map((timezone) => (
+                      <option key={timezone} value={timezone}>
+                        {timezone}
+                      </option>
+                    ))}
+                  </select>
+                  {ruleErrors[index]?.timezone && (
+                    <p className="mt-1 text-xs text-red-700">
+                      {ruleErrors[index].timezone}
+                    </p>
+                  )}
+                </div>
                 <Button
+                  className="self-end"
                   type="button"
                   variant="outline"
                   onClick={() =>

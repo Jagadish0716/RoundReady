@@ -139,6 +139,13 @@ export interface InterviewerSkill extends InterviewerSkillInput {
   id: string;
 }
 
+export interface InterviewerDomainSelection {
+  domain: InterviewerDomain;
+  skill_ids: string[];
+  experience_years: string;
+  legacy_skills?: InterviewerSkillInput[];
+}
+
 export interface WeeklyRuleInput {
   weekday: number;
   start_time: string;

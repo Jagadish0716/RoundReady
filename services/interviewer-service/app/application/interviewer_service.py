@@ -37,6 +37,7 @@ from app.domain.models import (
     WeeklyAvailabilityRule,
     utc_now,
 )
+from app.domain.skill_catalog import SKILL_CATALOG
 from app.infrastructure.contact_verification import DevelopmentContactVerificationProvider
 from pydantic import ValidationError
 from roundready_common.correlation import get_correlation_id
@@ -427,23 +428,32 @@ class InterviewerService:
                 status_code=409,
             )
         await self._set_check(
-            user_id, VerificationCheckType.LINKEDIN_REVIEWED, True,
-            admin_id, datetime.now(UTC),
+            user_id,
+            VerificationCheckType.LINKEDIN_REVIEWED,
+            True,
+            admin_id,
+            datetime.now(UTC),
         )
         await self._session.commit()
         return await self.get_verification(user_id, include_history=True)
 
     async def review_evidence(
-        self, user_id: UUID, evidence_id: UUID, admin_id: UUID,
-        status: EvidenceStatus, notes: str | None,
+        self,
+        user_id: UUID,
+        evidence_id: UUID,
+        admin_id: UUID,
+        status: EvidenceStatus,
+        notes: str | None,
     ) -> dict[str, object]:
         self._prevent_self_review(user_id, admin_id)
         await self._locked_profile(user_id)
         evidence = await self._session.scalar(
-            select(VerificationEvidence).where(
+            select(VerificationEvidence)
+            .where(
                 VerificationEvidence.id == evidence_id,
                 VerificationEvidence.interviewer_id == user_id,
-            ).with_for_update()
+            )
+            .with_for_update()
         )
         if evidence is None:
             raise ServiceError(
@@ -457,15 +467,19 @@ class InterviewerService:
         evidence.reviewed_at = now
         evidence.reviewed_by = admin_id
         verified_count = await self._session.scalar(
-            select(VerificationEvidence.id).where(
+            select(VerificationEvidence.id)
+            .where(
                 VerificationEvidence.interviewer_id == user_id,
                 VerificationEvidence.status == EvidenceStatus.VERIFIED.value,
-            ).limit(1)
+            )
+            .limit(1)
         )
         await self._set_check(
-            user_id, VerificationCheckType.PROFESSIONAL_EVIDENCE_REVIEWED,
+            user_id,
+            VerificationCheckType.PROFESSIONAL_EVIDENCE_REVIEWED,
             status is EvidenceStatus.VERIFIED or verified_count is not None,
-            admin_id, now,
+            admin_id,
+            now,
         )
         await self._session.commit()
         return await self.get_verification(user_id, include_history=True)
@@ -503,8 +517,11 @@ class InterviewerService:
         screening.reviewed_at = now
         await self._session.flush()
         await self._set_check(
-            user_id, VerificationCheckType.SCREENING_CALL_PASSED,
-            request.screening_status is ScreeningStatus.PASSED, admin_id, now,
+            user_id,
+            VerificationCheckType.SCREENING_CALL_PASSED,
+            request.screening_status is ScreeningStatus.PASSED,
+            admin_id,
+            now,
         )
         await self._session.commit()
         return await self.get_verification(user_id, include_history=True)
@@ -841,7 +858,47 @@ class InterviewerService:
     async def replace_skills(
         self, user_id: UUID, request: SkillReplaceRequest
     ) -> list[InterviewerSkill]:
-        self._ensure_active(await self.get_profile(user_id))
+        profile = await self.get_profile(user_id)
+        self._ensure_active(profile)
+        over_profile = sorted(
+            {
+                item.domain.value
+                for item in request.skills
+                if item.topic in SKILL_CATALOG[item.domain.value]
+                and item.experience_years > profile.experience_years
+            }
+        )
+        if over_profile:
+            raise ServiceError(
+                code="domain_experience_exceeds_profile",
+                message="Domain experience cannot exceed overall professional experience",
+                status_code=422,
+                details={"domains": over_profile},
+            )
+        existing_rows = await self.list_skills(user_id)
+        existing_legacy = {
+            (row.domain, row.topic, row.skill_name, row.experience_years)
+            for row in existing_rows
+            if row.topic not in SKILL_CATALOG.get(row.domain, {})
+        }
+        invalid = [
+            item
+            for item in request.skills
+            if item.topic not in SKILL_CATALOG[item.domain.value]
+            and (
+                item.domain.value,
+                item.topic,
+                item.skill_name,
+                item.experience_years,
+            )
+            not in existing_legacy
+        ]
+        if invalid:
+            raise ServiceError(
+                code="invalid_catalog_skill",
+                message=f"Select a valid skill for {invalid[0].domain.value}",
+                status_code=422,
+            )
         await self._session.execute(
             delete(InterviewerSkill).where(InterviewerSkill.user_id == user_id)
         )

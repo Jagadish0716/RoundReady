@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 import pytest
-from app.api.schemas import ProfileUpsertRequest, WeeklyRulesReplaceRequest
+from app.api.schemas import ProfileUpsertRequest, SkillReplaceRequest, WeeklyRulesReplaceRequest
 from pydantic import ValidationError
 
 VALID_PROFILE = {
@@ -74,6 +74,125 @@ def test_invalid_timezone_is_rejected() -> None:
                 }
             ]
         )
+
+
+def test_multiple_weekdays_with_iana_timezone_are_valid() -> None:
+    value = WeeklyRulesReplaceRequest.model_validate(
+        {
+            "rules": [
+                {
+                    "weekday": 0,
+                    "start_time": "18:00",
+                    "end_time": "20:00",
+                    "timezone": "Asia/Kolkata",
+                },
+                {
+                    "weekday": 2,
+                    "start_time": "18:00",
+                    "end_time": "20:00",
+                    "timezone": "Asia/Kolkata",
+                },
+            ]
+        }
+    )
+    assert len(value.rules) == 2
+
+
+def test_overlapping_same_day_rules_are_rejected() -> None:
+    with pytest.raises(ValidationError, match="cannot overlap"):
+        WeeklyRulesReplaceRequest.model_validate(
+            {
+                "rules": [
+                    {
+                        "weekday": 0,
+                        "start_time": "18:00",
+                        "end_time": "20:00",
+                        "timezone": "Asia/Kolkata",
+                    },
+                    {
+                        "weekday": 0,
+                        "start_time": "19:00",
+                        "end_time": "21:00",
+                        "timezone": "Asia/Kolkata",
+                    },
+                ]
+            }
+        )
+
+
+def test_non_overlapping_same_day_rules_are_valid() -> None:
+    value = WeeklyRulesReplaceRequest.model_validate(
+        {
+            "rules": [
+                {
+                    "weekday": 0,
+                    "start_time": "09:00",
+                    "end_time": "11:00",
+                    "timezone": "Europe/London",
+                },
+                {
+                    "weekday": 0,
+                    "start_time": "18:00",
+                    "end_time": "20:00",
+                    "timezone": "Europe/London",
+                },
+            ]
+        }
+    )
+    assert len(value.rules) == 2
+
+
+def test_catalog_skills_allow_multiple_skills_with_one_domain_experience() -> None:
+    value = SkillReplaceRequest.model_validate(
+        {
+            "skills": [
+                {
+                    "domain": "DevOps",
+                    "topic": "docker",
+                    "skill_name": "Docker",
+                    "experience_years": "5.0",
+                },
+                {
+                    "domain": "DevOps",
+                    "topic": "kubernetes",
+                    "skill_name": "Kubernetes",
+                    "experience_years": "5.0",
+                },
+            ]
+        }
+    )
+    assert len(value.skills) == 2
+
+
+def test_catalog_requires_at_least_one_domain_skill() -> None:
+    with pytest.raises(ValidationError):
+        SkillReplaceRequest.model_validate({"skills": []})
+
+
+@pytest.mark.parametrize(
+    "skills",
+    [
+        [
+            {
+                "domain": "DevOps",
+                "topic": "docker",
+                "skill_name": "Invented",
+                "experience_years": "5.0",
+            }
+        ],
+        [
+            {"domain": "AWS", "topic": "ec2", "skill_name": "EC2", "experience_years": "4.0"},
+            {"domain": "AWS", "topic": "ec2", "skill_name": "EC2", "experience_years": "4.0"},
+        ],
+        [
+            {"domain": "AWS", "topic": "ec2", "skill_name": "EC2", "experience_years": "4.0"},
+            {"domain": "AWS", "topic": "s3", "skill_name": "S3", "experience_years": "5.0"},
+        ],
+    ],
+)
+def test_catalog_skills_reject_invalid_or_inconsistent_rows(skills: list[dict[str, str]]) -> None:
+    with pytest.raises(ValidationError):
+        SkillReplaceRequest.model_validate({"skills": skills})
 
 
 def test_overlapping_weekly_rules_are_rejected() -> None:

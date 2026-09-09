@@ -1,7 +1,10 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { InterviewerWorkspace } from "@/components/interviewer/interviewer-workspace";
+import {
+  canonicalTime,
+  InterviewerWorkspace,
+} from "@/components/interviewer/interviewer-workspace";
 import { VerificationStatusCard } from "@/components/interviewer/verification-status";
 import { ApiClientError } from "@/lib/api/client";
 import type { VerificationStatus } from "@/types/interviewer";
@@ -186,6 +189,72 @@ describe("InterviewerWorkspace", () => {
     },
   );
 
+  it("saves catalog skills grouped by domain without a topic field", async () => {
+    render(<InterviewerWorkspace section="skills" />);
+    await screen.findByText("No skills added.");
+    fireEvent.click(
+      screen.getByRole("button", { name: "+ Add another domain" }),
+    );
+    fireEvent.click(screen.getByLabelText("Docker"));
+    fireEvent.click(screen.getByLabelText("Kubernetes"));
+    fireEvent.change(screen.getByLabelText("Experience in DevOps"), {
+      target: { value: "5.0" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save skills & domains" }),
+    );
+    expect(
+      await screen.findByText("Skills and domains saved."),
+    ).toBeInTheDocument();
+    expect(mocks.request).toHaveBeenCalledWith(
+      "/v1/interviewers/me/skills",
+      expect.objectContaining({
+        method: "PUT",
+        body: {
+          skills: [
+            {
+              domain: "DevOps",
+              topic: "docker",
+              skill_name: "Docker",
+              experience_years: "5.0",
+            },
+            {
+              domain: "DevOps",
+              topic: "kubernetes",
+              skill_name: "Kubernetes",
+              experience_years: "5.0",
+            },
+          ],
+        },
+      }),
+    );
+    expect(screen.queryByLabelText(/Topic/)).not.toBeInTheDocument();
+  });
+
+  it("requires a skill and rejects domain experience above overall experience", async () => {
+    render(<InterviewerWorkspace section="skills" />);
+    await screen.findByText("No skills added.");
+    fireEvent.click(
+      screen.getByRole("button", { name: "+ Add another domain" }),
+    );
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save skills & domains" }),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Select at least one skill for DevOps",
+    );
+    fireEvent.click(screen.getByLabelText("Docker"));
+    fireEvent.change(screen.getByLabelText("Experience in DevOps"), {
+      target: { value: "11.0" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save skills & domains" }),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "cannot exceed your overall professional experience",
+    );
+  });
+
   it("creates and saves a weekly availability rule", async () => {
     const savedRule = {
       id: "rule-1",
@@ -204,6 +273,10 @@ describe("InterviewerWorkspace", () => {
     render(<InterviewerWorkspace />);
     await screen.findByLabelText("Headline");
     fireEvent.click(screen.getByRole("button", { name: "Add time" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add time" }));
+    fireEvent.change(screen.getByLabelText("Weekday 2"), {
+      target: { value: "2" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save availability" }));
     expect(
       await screen.findByText("Weekly availability saved."),
@@ -211,6 +284,51 @@ describe("InterviewerWorkspace", () => {
     expect(mocks.request).toHaveBeenCalledWith(
       "/v1/interviewers/me/availability/weekly",
       expect.objectContaining({ method: "PUT" }),
+    );
+    expect(mocks.request).toHaveBeenCalledWith(
+      "/v1/interviewers/me/availability/weekly",
+      {
+        method: "PUT",
+        body: {
+          rules: [
+            {
+              weekday: 0,
+              start_time: "18:00",
+              end_time: "20:00",
+              timezone: "Asia/Kolkata",
+            },
+            {
+              weekday: 2,
+              start_time: "18:00",
+              end_time: "20:00",
+              timezone: "Asia/Kolkata",
+            },
+          ],
+        },
+      },
+    );
+  });
+
+  it("converts 12-hour display values to canonical API times", () => {
+    expect(canonicalTime("06:00 PM")).toBe("18:00");
+    expect(canonicalTime("08:00 PM")).toBe("20:00");
+    expect(canonicalTime("18:00:00")).toBe("18:00");
+  });
+
+  it("rejects overlapping windows for the same weekday", async () => {
+    render(<InterviewerWorkspace section="availability" />);
+    await screen.findByText("No weekly availability set.");
+    fireEvent.click(screen.getByRole("button", { name: "Add time" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add time" }));
+    fireEvent.change(screen.getByLabelText("Start time 2"), {
+      target: { value: "19:00" },
+    });
+    fireEvent.change(screen.getByLabelText("End time 2"), {
+      target: { value: "21:00" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save availability" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Monday availability overlaps another Monday time range",
     );
   });
 
@@ -227,7 +345,7 @@ describe("InterviewerWorkspace", () => {
     const callsBefore = mocks.request.mock.calls.length;
     fireEvent.click(screen.getByRole("button", { name: "Save availability" }));
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "start time must be before end time",
+      "End time must be later than start time",
     );
     expect(mocks.request).toHaveBeenCalledTimes(callsBefore);
   });

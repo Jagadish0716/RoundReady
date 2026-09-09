@@ -12,6 +12,7 @@ from app.domain.models import (
     VerificationCheckType,
     VerificationStatus,
 )
+from app.domain.skill_catalog import SKILL_CATALOG
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -106,12 +107,29 @@ class SkillItem(BaseModel):
 
 class SkillReplaceRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    skills: list[SkillItem] = Field(max_length=50)
+    skills: list[SkillItem] = Field(min_length=1, max_length=50)
+
+    @model_validator(mode="after")
+    def valid_catalog_selection(self) -> "SkillReplaceRequest":
+        by_domain: dict[Domain, set[str]] = {}
+        experience: dict[Domain, Decimal] = {}
+        for item in self.skills:
+            catalog = SKILL_CATALOG[item.domain.value]
+            if item.topic in catalog and item.skill_name != catalog[item.topic]:
+                raise ValueError(f"Select a valid skill for {item.domain.value}.")
+            if item.topic in by_domain.setdefault(item.domain, set()):
+                raise ValueError(f"Do not select the same skill twice for {item.domain.value}.")
+            by_domain[item.domain].add(item.topic)
+            if item.topic in catalog:
+                previous = experience.setdefault(item.domain, item.experience_years)
+                if previous != item.experience_years:
+                    raise ValueError(f"Use one domain experience value for {item.domain.value}.")
+        return self
 
     @field_validator("skills")
     @classmethod
     def unique_skills(cls, value: list[SkillItem]) -> list[SkillItem]:
-        keys = {(item.domain, item.topic.casefold(), item.skill_name.casefold()) for item in value}
+        keys = {(item.domain, item.topic) for item in value}
         if len(keys) != len(value):
             raise ValueError("skills must be unique")
         return value
