@@ -36,3 +36,20 @@ export const submitFeedback = (
   });
 export const getFeedback = (request: AuthenticatedRequest, id: string) =>
   request<FeedbackReport>(`${sessions}/${id}/feedback`);
+
+export const getAttendance = (request: AuthenticatedRequest, id: string) =>
+  request<import("@/types/interview").Attendance[]>(
+    `${sessions}/${id}/attendance`,
+  );
+export const localAttendance = (
+  request: AuthenticatedRequest,
+  id: string,
+  event_type: "joined" | "left",
+) =>
+  request<import("@/types/interview").Attendance>(
+    `${sessions}/${id}/development/attendance`,
+    {
+      method: "POST",
+      body: { event_type },
+    },
+  );

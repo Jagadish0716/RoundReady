@@ -38,6 +38,9 @@ class Settings(BaseSettings):
         default="roundready.events.dlx",
         validation_alias="RABBITMQ_DEAD_LETTER_EXCHANGE",
     )
+    interviewer_service_url: str = "http://interviewer-service:8000"
+    interview_service_url: str = "http://interview-service:8000"
+    availability_sync_seconds: int = Field(default=15, ge=5)
     hold_ttl_seconds: int = Field(default=300, ge=1, le=1800)
     session_duration_minutes: int = Field(default=20, ge=15, le=60)
     session_price_paise: int = Field(default=20000, ge=20000, le=20000)

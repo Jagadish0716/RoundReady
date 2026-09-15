@@ -210,7 +210,22 @@ class RejectionRequest(BaseModel):
 
 
 class SuspensionRequest(RejectionRequest):
-    pass
+    reason_category: Literal[
+        "Misleading information",
+        "False/fraudulent professional information",
+        "Verification concerns",
+        "Repeated no-shows",
+        "Candidate complaints",
+        "Platform policy violation",
+        "Other",
+    ]
+    admin_note: Annotated[str, Field(max_length=1000)] | None = None
+
+    @model_validator(mode="after")
+    def other_requires_note(self) -> "SuspensionRequest":
+        if self.reason_category == "Other" and not (self.admin_note or "").strip():
+            raise ValueError("admin_note is required when reason_category is Other")
+        return self
 
 
 class EvidenceInput(BaseModel):
@@ -272,6 +287,7 @@ class ReviewHistoryResponse(BaseModel):
     to_status: VerificationStatus
     reviewed_by: UUID
     notes: str | None
+    reason_category: str | None
     created_at: datetime
 
 
@@ -324,9 +340,33 @@ class VerificationReviewRequest(BaseModel):
         "under_review", "verify", "reject", "request_more_evidence", "suspend", "reactivate"
     ]
     reason: Annotated[str, Field(max_length=1000)] | None = None
+    reason_category: (
+        Literal[
+            "Misleading information",
+            "False/fraudulent professional information",
+            "Verification concerns",
+            "Repeated no-shows",
+            "Candidate complaints",
+            "Platform policy violation",
+            "Other",
+        ]
+        | None
+    ) = None
     checks: dict[VerificationCheckType, bool] = Field(default_factory=dict)
     evidence_statuses: dict[UUID, EvidenceStatus] = Field(default_factory=dict)
     screening: ScreeningInput | None = None
+
+    @model_validator(mode="after")
+    def suspension_reason_is_controlled(self) -> "VerificationReviewRequest":
+        if self.action == "suspend" and self.reason_category is None:
+            raise ValueError("reason_category is required when suspending an interviewer")
+        if (
+            self.action == "suspend"
+            and self.reason_category == "Other"
+            and not (self.reason or "").strip()
+        ):
+            raise ValueError("reason is required when reason_category is Other")
+        return self
 
 
 class EvidenceReviewRequest(BaseModel):

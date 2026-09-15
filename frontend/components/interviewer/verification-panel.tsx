@@ -26,6 +26,8 @@ export function VerificationPanel() {
     useState<ContactChallenge | null>(null);
   const [companyChallenge, setCompanyChallenge] =
     useState<ContactChallenge | null>(null);
+  const [evidenceUrl, setEvidenceUrl] = useState("");
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -143,7 +145,7 @@ export function VerificationPanel() {
     >
       <div>
         <h2 id="verification-heading" className="text-lg font-semibold">
-          Contact verification
+          Interviewer verification
         </h2>
         <p className="text-sm text-slate-600">
           Status:{" "}
@@ -301,6 +303,124 @@ export function VerificationPanel() {
           )}
         </p>
       </div>
+      <section
+        className="space-y-3 rounded-xl border p-4"
+        aria-labelledby="evidence-heading"
+      >
+        <h3 id="evidence-heading" className="font-semibold">
+          Professional evidence
+        </h3>
+        <p className="text-sm text-slate-600">
+          Submit a GitHub profile, portfolio, or professional work URL for Admin
+          review. Only you and Admin can see submitted evidence. Submission does
+          not mean approval.
+        </p>
+        {detail.rejection_reason && (
+          <p className="text-sm text-amber-800">
+            Admin request: {detail.rejection_reason}
+          </p>
+        )}
+        {detail.evidence.length ? (
+          <ul className="space-y-2">
+            {detail.evidence.map((item) => (
+              <li key={item.id} className="rounded-md bg-slate-50 p-3 text-sm">
+                <strong>
+                  {item.evidence_type.replaceAll("_", " ")}:{" "}
+                  {item.status === "verified"
+                    ? "Reviewed"
+                    : item.status === "rejected"
+                      ? "Changes requested"
+                      : "Submitted · Awaiting review"}
+                </strong>
+                {item.evidence_type !== "supporting_document" && (
+                  <p className="break-all">{item.value_reference}</p>
+                )}
+                {item.reviewer_notes && (
+                  <p>Admin notes: {item.reviewer_notes}</p>
+                )}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-sm">No professional evidence submitted yet.</p>
+        )}
+        {detail.status !== "verified" && detail.status !== "suspended" && (
+          <form
+            className="space-y-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              let url: URL;
+              try {
+                url = new URL(evidenceUrl.trim());
+              } catch {
+                setError("Enter a valid professional evidence URL.");
+                return;
+              }
+              if (
+                !["https:", "http:"].includes(url.protocol) ||
+                url.username ||
+                url.password
+              ) {
+                setError("Use an HTTP or HTTPS URL without credentials.");
+                return;
+              }
+              void run(async () => {
+                await api.saveVerificationEvidence(
+                  request,
+                  "github_or_portfolio",
+                  url.toString(),
+                );
+                await load();
+                setNotice(
+                  "Professional evidence submitted. Awaiting Admin review.",
+                );
+              });
+            }}
+          >
+            <Label htmlFor="professional-evidence-url">
+              GitHub or portfolio URL
+            </Label>
+            <Input
+              id="professional-evidence-url"
+              type="url"
+              required
+              value={evidenceUrl}
+              disabled={busy}
+              placeholder="https://github.com/your-profile"
+              onChange={(event) => setEvidenceUrl(event.target.value)}
+            />
+            {profile?.github_url && (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={busy}
+                onClick={() => setEvidenceUrl(profile.github_url!)}
+              >
+                Use my GitHub profile
+              </Button>
+            )}
+            <p className="text-xs text-slate-600">
+              Replacing evidence sends it back for review.
+            </p>
+            <Button type="submit" disabled={busy}>
+              {busy ? "Saving…" : "Submit professional evidence"}
+            </Button>
+          </form>
+        )}
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={() => void run(load)}
+        >
+          Refresh verification status
+        </Button>
+        {notice && (
+          <p role="status" className="text-sm text-green-700">
+            {notice}
+          </p>
+        )}
+      </section>
       {error && (
         <p role="alert" className="text-sm text-red-700">
           {error}

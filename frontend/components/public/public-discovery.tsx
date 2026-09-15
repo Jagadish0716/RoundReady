@@ -16,6 +16,18 @@ const money = (paise: number) =>
     maximumFractionDigits: 0,
   }).format(paise / 100);
 
+function formatSlotTime(slot: PublicSlot | undefined) {
+  if (!slot) return "No slots in the next 30 days";
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(slot.starts_at));
+}
+
+function uniqueValues(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
 export function PublicDiscovery({
   authenticated = false,
 }: {
@@ -58,8 +70,8 @@ export function PublicDiscovery({
           Verified interviewers
         </h2>
         <p className="mt-2 text-neutral-600">
-          Browse skills, trust checks, and available ₹200 interview slots
-          without an account.
+          Compare verified professionals by focus area, experience, language,
+          price, and next availability without an account.
         </p>
       </header>
       {error && (
@@ -73,99 +85,114 @@ export function PublicDiscovery({
           No interview slots are available right now. Please check again soon.
         </p>
       ) : null}
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
         {interviewers.map((person) => {
-          const available = slots.filter(
-            (slot) => slot.interviewer_id === person.interviewer_id,
+          const available = slots
+            .filter((slot) => slot.interviewer_id === person.interviewer_id)
+            .sort(
+              (left, right) =>
+                new Date(left.starts_at).getTime() -
+                new Date(right.starts_at).getTime(),
+            );
+          const nextSlot = available[0];
+          const domains = uniqueValues(
+            person.skills.map((skill) => skill.domain),
+          ).slice(0, 3);
+          const visibleSkills = person.skills.slice(0, 5);
+          const extraSkills = Math.max(
+            person.skills.length - visibleSkills.length,
+            0,
           );
           return (
             <article
               key={person.interviewer_id}
-              className="rounded-xl border bg-white p-5 shadow-sm"
+              className="flex h-full flex-col rounded-lg border border-neutral-200 bg-white p-5 shadow-sm"
             >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-xs font-semibold tracking-wide text-green-700 uppercase">
-                    RoundReady Verified
-                  </p>
-                  <h3 className="mt-1 text-xl font-semibold">
+              <div className="flex grow flex-col gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-xs font-semibold tracking-wide text-green-700 uppercase">
+                      RoundReady Verified
+                    </p>
+                    <strong className="shrink-0 text-neutral-950">
+                      {money(person.price_paise)}
+                    </strong>
+                  </div>
+                  <h3 className="text-xl font-semibold text-neutral-950">
                     {person.full_name ?? "Name not provided"}
                   </h3>
-                  <p className="mt-1 font-medium text-slate-700">
+                  <p className="font-medium text-slate-700">
                     {person.headline}
                   </p>
                   <p className="text-sm text-neutral-600">
-                    {person.job_title ?? "Technology interviewer"} ·{" "}
-                    {person.experience_years} years
+                    {person.experience_years} years of experience
                   </p>
                 </div>
-                <strong>{money(person.price_paise)}</strong>
-              </div>
-              {person.bio && (
-                <p className="mt-3 text-sm text-neutral-700">{person.bio}</p>
-              )}
-              <div className="mt-4 flex flex-wrap gap-2">
-                {person.skills.map((skill) => (
-                  <span
-                    key={skill.id}
-                    className="rounded-full bg-neutral-100 px-3 py-1 text-xs"
-                  >
-                    {skill.domain} · {skill.skill_name}
-                  </span>
-                ))}
-              </div>
-              <ul className="mt-4 space-y-1 text-sm text-neutral-700">
-                <li>
-                  Interview language: {person.interview_languages.join(", ")}
-                </li>
-                <li>
-                  ✓ Professional experience{" "}
-                  {person.professional_experience_reviewed
-                    ? "reviewed"
-                    : "verification complete"}
-                </li>
-                <li>
-                  ✓ Screening{" "}
-                  {person.screening_passed ? "passed" : "verification complete"}
-                </li>
-              </ul>
-              <div className="mt-5 space-y-3">
-                <h4 className="font-medium">Available slots</h4>
-                {available.length === 0 ? (
-                  <p className="text-sm text-neutral-500">
-                    No slots available in the next 30 days.
-                  </p>
-                ) : (
-                  available.slice(0, 4).map((slot) => {
-                    const next = `/candidate?slot=${encodeURIComponent(slot.id)}&interviewer=${encodeURIComponent(person.interviewer_id)}`;
-                    return (
-                      <div
-                        key={slot.id}
-                        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border p-3"
+
+                {domains.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {domains.map((domain) => (
+                      <span
+                        key={domain}
+                        className="rounded-full bg-blue-50 px-3 py-1 text-xs font-medium text-blue-800"
                       >
-                        <div>
-                          <p className="text-sm font-medium">
-                            {slot.domain} · {slot.topic}
-                          </p>
-                          <p className="text-xs text-neutral-600">
-                            {new Date(slot.starts_at).toLocaleString()}
-                          </p>
-                        </div>
-                        <Button asChild size="sm">
-                          <Link
-                            href={
-                              authenticated
-                                ? next
-                                : `/login?next=${encodeURIComponent(next)}`
-                            }
-                          >
-                            Book interview
-                          </Link>
-                        </Button>
-                      </div>
-                    );
-                  })
-                )}
+                        {domain}
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap gap-2">
+                  {visibleSkills.map((skill) => (
+                    <span
+                      key={skill.id}
+                      className="rounded-full bg-neutral-100 px-3 py-1 text-xs text-neutral-700"
+                    >
+                      {skill.skill_name}
+                    </span>
+                  ))}
+                  {extraSkills > 0 ? (
+                    <span className="rounded-full bg-neutral-100 px-3 py-1 text-xs text-neutral-700">
+                      +{extraSkills} more
+                    </span>
+                  ) : null}
+                </div>
+
+                <dl className="space-y-2 text-sm text-neutral-700">
+                  <div className="flex justify-between gap-3">
+                    <dt>Interview language</dt>
+                    <dd className="text-right font-medium">
+                      {person.interview_languages.join(", ")}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <dt>Next availability</dt>
+                    <dd className="text-right font-medium">
+                      {formatSlotTime(nextSlot)}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              <div className="mt-5 grid gap-2 sm:grid-cols-2">
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/interviewers/${person.interviewer_id}`}>
+                    View profile
+                  </Link>
+                </Button>
+                <Button asChild size="sm">
+                  <Link
+                    href={
+                      nextSlot
+                        ? authenticated
+                          ? `/candidate?slot=${encodeURIComponent(nextSlot.id)}&interviewer=${encodeURIComponent(person.interviewer_id)}`
+                          : `/login?next=${encodeURIComponent(`/candidate?slot=${encodeURIComponent(nextSlot.id)}&interviewer=${encodeURIComponent(person.interviewer_id)}`)}`
+                        : `/interviewers/${person.interviewer_id}`
+                    }
+                  >
+                    Book interview
+                  </Link>
+                </Button>
               </div>
             </article>
           );

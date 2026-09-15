@@ -87,6 +87,7 @@ class InterviewerEligibility(Base):
 
     interviewer_id: Mapped[UUID] = mapped_column(primary_key=True)
     verified: Mapped[bool] = mapped_column(default=False)
+    deleted: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 

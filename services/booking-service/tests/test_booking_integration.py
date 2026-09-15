@@ -21,6 +21,7 @@ def generate(
         json={
             "event_id": str(uuid4()),
             "interviewer_id": str(interviewer),
+            "occurred_at": datetime.now(UTC).isoformat(),
             "event_type": "interviewer.verification.approved.v1",
         },
     )
@@ -95,6 +96,7 @@ def test_non_verified_interviewer_is_hidden_and_not_bookable(client: TestClient)
         json={
             "event_id": str(uuid4()),
             "interviewer_id": str(interviewer),
+            "occurred_at": datetime.now(UTC).isoformat(),
             "event_type": "interviewer.verification.suspended.v1",
         },
     )
@@ -350,3 +352,35 @@ def test_empty_public_slot_collection_uses_default_discovery_window(
     response = client.get("/v1/public/slots")
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_stale_approval_cannot_resurrect_suspension_or_deletion(client: TestClient) -> None:
+    admin = headers("admin")
+    interviewer = uuid4()
+    start = datetime.now(UTC) + timedelta(days=3)
+    slot = generate(client, admin, interviewer, start)
+    now = datetime.now(UTC)
+
+    def event(kind: str, when: datetime, event_id: UUID | None = None) -> None:
+        response = client.post(
+            "/v1/internal/interviewer-verification-events",
+            headers=admin,
+            json={
+                "event_id": str(event_id or uuid4()),
+                "interviewer_id": str(interviewer),
+                "event_type": kind,
+                "occurred_at": when.isoformat(),
+            },
+        )
+        assert response.status_code == 204
+
+    suspended_id = uuid4()
+    event("interviewer.verification.suspended.v1", now, suspended_id)
+    event("interviewer.verification.approved.v1", now - timedelta(seconds=1))
+    event("interviewer.verification.suspended.v1", now, suspended_id)
+    assert client.get(f"/v1/public/slots/{slot['id']}").status_code == 404
+    event("interviewer.verification.approved.v1", now + timedelta(seconds=1))
+    assert client.get(f"/v1/public/slots/{slot['id']}").status_code == 200
+    event("interviewer.deleted.v1", now + timedelta(seconds=2))
+    event("interviewer.verification.approved.v1", now + timedelta(days=1))
+    assert client.get(f"/v1/public/slots/{slot['id']}").status_code == 404

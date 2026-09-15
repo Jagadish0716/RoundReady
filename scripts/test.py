@@ -24,7 +24,10 @@ def main() -> int:
     pytest = repository / ".venv" / "bin" / "pytest"
     command = [str(pytest)] if pytest.is_file() else [sys.executable, "-m", "pytest"]
 
-    for service in SERVICES:
+    selected = sys.argv[1:] or SERVICES
+    if any(service not in SERVICES for service in selected):
+        raise SystemExit("Unknown service")
+    for service in selected:
         service_dir = repository / "services" / service
         environment = os.environ.copy()
         python_paths = [str(service_dir), str(repository / "libs")]

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
 from app.domain.providers import PaymentProvider
+from app.infrastructure.booking import BookingClient
 from app.infrastructure.database import get_db_session
 from app.infrastructure.development import DevelopmentPaymentProvider
 from app.infrastructure.razorpay import RazorpayAdapter
@@ -90,3 +91,10 @@ def get_payment_provider(settings: AppSettings) -> PaymentProvider:
 
 
 Provider = Annotated[PaymentProvider, Depends(get_payment_provider)]
+
+
+def get_booking_client(settings: AppSettings) -> BookingClient:
+    return BookingClient(settings)
+
+
+BookingContract = Annotated[BookingClient, Depends(get_booking_client)]

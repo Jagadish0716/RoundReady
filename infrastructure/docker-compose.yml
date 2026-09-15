@@ -267,6 +267,15 @@ services:
     depends_on: {auth-service: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
     networks: [roundready-local]
 
+  auth-event-worker:
+    build: {context: .., dockerfile: services/auth-service/Dockerfile}
+    container_name: roundready-auth-event-worker
+    restart: unless-stopped
+    command: ["python", "-m", "app.workers.events"]
+    environment: *auth-environment
+    depends_on: {auth-service: {condition: service_healthy}, rabbitmq: {condition: service_healthy}}
+    networks: [roundready-local]
+
   interviewer-outbox-worker:
     build: {context: .., dockerfile: services/interviewer-service/Dockerfile}
     container_name: roundready-interviewer-outbox-worker

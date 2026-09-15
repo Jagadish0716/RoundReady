@@ -25,6 +25,7 @@ export interface InterviewSession {
 }
 
 export interface RoomAccess {
+  provider?: string;
   token: string;
   expires_at: string;
   join_url: string;
@@ -64,3 +65,10 @@ export interface FeedbackReport extends FeedbackInput {
   total_score: number;
   submitted_at: string;
 }
+
+export type Attendance = {
+  user_id: string;
+  role: string;
+  connected: boolean;
+  total_connected_seconds: number;
+};

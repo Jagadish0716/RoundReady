@@ -87,12 +87,7 @@ class AuthService:
         if credential is None or not verify_password(credential.password_hash, request.password):
             raise self._invalid_credentials()
         self._ensure_active(credential)
-        if not credential.email_verified:
-            raise ServiceError(
-                code="email_verification_required",
-                message="Verify your email before continuing.",
-                status_code=403,
-            )
+        self._ensure_email_verified(credential)
         if password_needs_rehash(credential.password_hash):
             credential.password_hash = hash_password(request.password)
         response, refresh_record = self._new_token_pair(credential, family_id=uuid4())
@@ -231,6 +226,7 @@ class AuthService:
         if credential is None:
             raise self._invalid_refresh()
         self._ensure_active(credential)
+        self._ensure_email_verified(credential)
 
         response, replacement = self._new_token_pair(credential, family_id=current.family_id)
         current.used_at = now
@@ -261,6 +257,7 @@ class AuthService:
                 message="Access token has been revoked",
                 status_code=401,
             )
+        self._ensure_email_verified(credential)
         return AuthenticatedIdentity(credential=credential, claims=claims)
 
     async def logout(self, identity: AuthenticatedIdentity, raw_refresh_token: str) -> None:
@@ -295,6 +292,7 @@ class AuthService:
             now = datetime.now(UTC)
             credential.is_active = False
             credential.disabled_at = now
+            credential.access_status = "disabled"
             await self._session.execute(
                 update(RefreshToken)
                 .where(
@@ -306,6 +304,45 @@ class AuthService:
             self._session.add(self._event("auth.UserDisabled.v1", {"user_id": str(credential.id)}))
             await self._session.commit()
         return credential
+
+    async def apply_interviewer_access_event(
+        self,
+        event_id: UUID,
+        user_id: UUID,
+        status: str,
+        occurred_at: datetime,
+        reason_category: str | None = None,
+    ) -> bool:
+        credential = await self._session.get(Credential, user_id, with_for_update=True)
+        if credential is None:
+            raise LookupError("interviewer credential is not available yet")
+        if credential.role is not Role.INTERVIEWER:
+            raise ValueError("interviewer lifecycle event targeted a non-interviewer account")
+        if credential.lifecycle_event_id == event_id:
+            return False
+        if credential.access_status == "disabled":
+            return False
+        if credential.lifecycle_updated_at and credential.lifecycle_updated_at >= occurred_at:
+            return False
+
+        now = datetime.now(UTC)
+        credential.lifecycle_event_id = event_id
+        credential.lifecycle_updated_at = occurred_at
+        credential.access_status = status
+        credential.access_reason_category = reason_category if status == "blocked" else None
+        credential.is_active = status == "active"
+        credential.disabled_at = None if status == "active" else now
+        if status != "active":
+            await self._session.execute(
+                update(RefreshToken)
+                .where(
+                    RefreshToken.credential_id == credential.id,
+                    RefreshToken.revoked_at.is_(None),
+                )
+                .values(revoked_at=now)
+            )
+        await self._session.commit()
+        return True
 
     def _new_token_pair(
         self, credential: Credential, *, family_id: UUID
@@ -354,8 +391,32 @@ class AuthService:
     @staticmethod
     def _ensure_active(credential: Credential) -> None:
         if not credential.is_active:
+            if credential.access_status == "blocked":
+                raise ServiceError(
+                    code="account_blocked",
+                    message="Interviewer account is blocked",
+                    status_code=403,
+                    details={"reason_category": credential.access_reason_category}
+                    if credential.access_reason_category
+                    else None,
+                )
+            if credential.access_status == "disabled" and credential.role is Role.INTERVIEWER:
+                raise ServiceError(
+                    code="account_disabled",
+                    message="Interviewer account is disabled",
+                    status_code=403,
+                )
             raise ServiceError(
                 code="account_disabled", message="Account is disabled", status_code=403
+            )
+
+    @staticmethod
+    def _ensure_email_verified(credential: Credential) -> None:
+        if not credential.email_verified:
+            raise ServiceError(
+                code="email_verification_required",
+                message="Verify your email before continuing.",
+                status_code=403,
             )
 
     @staticmethod

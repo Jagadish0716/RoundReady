@@ -105,7 +105,7 @@ describe("InterviewerReview", () => {
     expect(
       screen.queryByLabelText("I reviewed the LinkedIn profile"),
     ).not.toBeInTheDocument();
-    expect(screen.getByText("Cannot approve yet")).toBeInTheDocument();
+    expect(await screen.findByText("Cannot approve yet")).toBeInTheDocument();
   });
 
   it("requires a reason when requesting more evidence", async () => {
@@ -159,6 +159,48 @@ describe("InterviewerReview", () => {
       expect(mocks.request).toHaveBeenCalledWith(
         `/v1/interviewers/admin/interviewers/${profile.user_id}/delete`,
         { method: "POST", body: { reason: "Repeated policy violations" } },
+      ),
+    );
+  });
+
+  it("requires a controlled reason and confirmation before blocking", async () => {
+    const verified = { ...profile, verification_status: "verified" as const };
+    mocks.request.mockImplementation((path: string) => {
+      if (path === "/v1/interviewers/admin/interviewers")
+        return Promise.resolve([verified]);
+      if (path.endsWith("/verification"))
+        return Promise.resolve({ ...detail, status: "verified" });
+      if (path.endsWith("/suspend")) return Promise.resolve(verified);
+      return Promise.reject(new Error(`Unexpected request: ${path}`));
+    });
+    render(<InterviewerReview />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Block interviewer" }),
+    );
+    expect(
+      screen.getByRole("dialog", { name: "Block interviewer" }),
+    ).toHaveTextContent("immediately lose access");
+    fireEvent.change(screen.getByLabelText("Reason category"), {
+      target: { value: "Other" },
+    });
+    expect(
+      screen.getByRole("button", { name: "Confirm block" }),
+    ).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Suspension admin notes"), {
+      target: { value: "Documented policy issue" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Confirm block" }));
+    await waitFor(() =>
+      expect(mocks.request).toHaveBeenCalledWith(
+        `/v1/interviewers/admin/interviewers/${profile.user_id}/suspend`,
+        {
+          method: "POST",
+          body: {
+            reason: "Other",
+            reason_category: "Other",
+            admin_note: "Documented policy issue",
+          },
+        },
       ),
     );
   });

@@ -14,15 +14,27 @@ import {
   recordScreening,
   reviewEvidence,
   reviewVerification,
+  suspendInterviewer,
 } from "@/lib/api/interviewer";
 import { isInterviewerProfileComplete } from "@/lib/interviewer-profile";
 import type {
   InterviewerProfile,
+  ModerationReasonCategory,
   VerificationDetail,
   VerificationReviewInput,
 } from "@/types/interviewer";
 
 type Action = VerificationReviewInput["action"];
+
+const moderationReasons: ModerationReasonCategory[] = [
+  "Misleading information",
+  "False/fraudulent professional information",
+  "Verification concerns",
+  "Repeated no-shows",
+  "Candidate complaints",
+  "Platform policy violation",
+  "Other",
+];
 
 function messageFor(error: unknown): string {
   if (
@@ -56,6 +68,10 @@ export function InterviewerReview() {
   const [showDelete, setShowDelete] = useState(false);
   const [deleteReason, setDeleteReason] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [showSuspend, setShowSuspend] = useState(false);
+  const [suspendCategory, setSuspendCategory] =
+    useState<ModerationReasonCategory>("Misleading information");
+  const [suspendNote, setSuspendNote] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -201,6 +217,35 @@ export function InterviewerReview() {
       setError(messageFor(caught));
     } finally {
       setDeleting(false);
+    }
+  }
+
+  async function blockInterviewer() {
+    if (
+      !selected ||
+      activeAction ||
+      (suspendCategory === "Other" && !suspendNote.trim())
+    )
+      return;
+    setActiveAction("suspend");
+    setError(null);
+    try {
+      await suspendInterviewer(
+        request,
+        selected.user_id,
+        suspendCategory,
+        suspendNote,
+      );
+      setShowSuspend(false);
+      setSuspendNote("");
+      setNotice(
+        "Interviewer blocked. Account access will be revoked immediately by the authentication service.",
+      );
+      await load();
+    } catch (caught) {
+      setError(messageFor(caught));
+    } finally {
+      setActiveAction(null);
     }
   }
 
@@ -552,9 +597,9 @@ export function InterviewerReview() {
                   <Button
                     variant="outline"
                     disabled={activeAction !== null}
-                    onClick={() => void perform("suspend")}
+                    onClick={() => setShowSuspend(true)}
                   >
-                    Suspend
+                    Block interviewer
                   </Button>
                 )}
                 {selected.verification_status === "suspended" && (
@@ -575,6 +620,75 @@ export function InterviewerReview() {
                   Delete interviewer
                 </Button>
               </div>
+              {showSuspend && (
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="suspend-title"
+                  className="rounded-lg border border-amber-200 bg-amber-50 p-4"
+                >
+                  <h3 id="suspend-title" className="font-semibold">
+                    Block interviewer
+                  </h3>
+                  <p className="mt-1 text-sm">
+                    {selected.full_name || "This interviewer"} will immediately
+                    lose access to RoundReady. Existing historical bookings and
+                    interviews will be preserved.
+                  </p>
+                  <label className="mt-3 block text-sm">
+                    <span>Reason category</span>
+                    <select
+                      aria-label="Reason category"
+                      className="mt-1 h-10 w-full rounded border bg-white px-2"
+                      value={suspendCategory}
+                      onChange={(event) =>
+                        setSuspendCategory(
+                          event.target.value as ModerationReasonCategory,
+                        )
+                      }
+                    >
+                      {moderationReasons.map((item) => (
+                        <option key={item}>{item}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="mt-3 block text-sm">
+                    <span>
+                      Admin notes
+                      {suspendCategory === "Other"
+                        ? " (required)"
+                        : " (optional)"}
+                    </span>
+                    <textarea
+                      aria-label="Suspension admin notes"
+                      className="mt-1 min-h-20 w-full rounded border bg-white p-2"
+                      value={suspendNote}
+                      onChange={(event) => setSuspendNote(event.target.value)}
+                      maxLength={1000}
+                    />
+                  </label>
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      type="button"
+                      disabled={
+                        activeAction !== null ||
+                        (suspendCategory === "Other" && !suspendNote.trim())
+                      }
+                      onClick={() => void blockInterviewer()}
+                    >
+                      Confirm block
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={activeAction !== null}
+                      onClick={() => setShowSuspend(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
               {showDelete && (
                 <div
                   role="dialog"

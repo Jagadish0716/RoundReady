@@ -5,7 +5,7 @@ from uuid import UUID
 from roundready_common.contracts import PAYMENT_CAPTURED, PAYMENT_FAILED, PAYMENT_REFUNDED
 from roundready_common.correlation import get_correlation_id
 from roundready_common.errors import ServiceError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,15 +20,22 @@ from app.domain.models import (
     WebhookProcessingStatus,
 )
 from app.domain.providers import PaymentProvider
+from app.infrastructure.booking import BookingClient
 
 
 class PaymentService:
-    def __init__(self, session: AsyncSession, provider: PaymentProvider, price: int) -> None:
+    def __init__(
+        self, session: AsyncSession, provider: PaymentProvider, price: int, bookings: BookingClient
+    ) -> None:
         self.session, self.provider, self.price = session, provider, price
+        self.bookings = bookings
 
     async def create_order(
         self, booking_id: UUID, candidate_id: UUID, key: str
     ) -> tuple[Payment, dict[str, str | int] | None]:
+        await self.session.execute(
+            text("SELECT pg_advisory_xact_lock(:key)"), {"key": booking_id.int % (2**63 - 1)}
+        )
         existing = await self.session.scalar(
             select(Payment).where(
                 Payment.candidate_id == candidate_id, Payment.idempotency_key == key
@@ -42,6 +49,18 @@ class PaymentService:
                     status_code=409,
                 )
             return existing, None
+        existing_booking = await self.session.scalar(
+            select(Payment).where(
+                Payment.booking_id == booking_id,
+                Payment.candidate_id == candidate_id,
+                Payment.status.in_(
+                    [PaymentStatus.PENDING, PaymentStatus.AUTHORIZED, PaymentStatus.CAPTURED]
+                ),
+            )
+        )
+        if existing_booking:
+            return existing_booking, None
+        await self.bookings.validate(booking_id, candidate_id)
         payment = Payment(
             booking_id=booking_id,
             candidate_id=candidate_id,
@@ -106,6 +125,7 @@ class PaymentService:
                 message="Payment status transition is invalid",
                 status_code=409,
             )
+        await self.bookings.validate(payment.booking_id, candidate_id)
         provider_payment_id = f"pay_dev_{payment.id.hex}"
         payment.provider_payment_id = provider_payment_id
         self._transition(

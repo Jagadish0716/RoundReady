@@ -26,7 +26,7 @@ export function PasswordField({
   return (
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
-      <div className="flex gap-2">
+      <div className="relative">
         <Input
           id={id}
           name={id}
@@ -35,6 +35,9 @@ export function PasswordField({
           disabled={disabled}
           aria-invalid={Boolean(error)}
           aria-describedby={error ? `${id}-error` : undefined}
+          autoComplete="current-password"
+          placeholder="Enter your password"
+          className="h-12 pr-12"
           onChange={(event) => onChange(event.target.value)}
         />
         <Button
@@ -43,6 +46,7 @@ export function PasswordField({
           size="sm"
           disabled={disabled}
           aria-label={visible ? "Hide password" : "Show password"}
+          className="absolute top-1/2 right-1 h-10 w-10 -translate-y-1/2 border-0 bg-transparent px-0 text-slate-500 hover:bg-blue-50 hover:text-blue-700"
           onClick={() => setVisible((current) => !current)}
         >
           {visible ? <EyeOff aria-hidden /> : <Eye aria-hidden />}

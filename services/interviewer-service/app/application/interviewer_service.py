@@ -527,7 +527,7 @@ class InterviewerService:
         return await self.get_verification(user_id, include_history=True)
 
     async def upsert_evidence(self, user_id: UUID, request: EvidenceInput) -> dict[str, object]:
-        self._ensure_active(await self.get_profile(user_id))
+        await self._locked_profile(user_id)
         verification = await self._verification(user_id)
         if verification.status in {
             VerificationStatus.VERIFIED.value,
@@ -557,6 +557,22 @@ class InterviewerService:
             row.reviewer_notes = None
             row.reviewed_at = None
             row.reviewed_by = None
+        await self._session.flush()
+        accepted = await self._session.scalar(
+            select(VerificationEvidence.id)
+            .where(
+                VerificationEvidence.interviewer_id == user_id,
+                VerificationEvidence.status == EvidenceStatus.VERIFIED.value,
+            )
+            .limit(1)
+        )
+        await self._set_check(
+            user_id,
+            VerificationCheckType.PROFESSIONAL_EVIDENCE_REVIEWED,
+            accepted is not None,
+            user_id,
+            datetime.now(UTC),
+        )
         verification.updated_at = datetime.now(UTC)
         await self._session.commit()
         return await self.get_verification(user_id)
@@ -722,6 +738,7 @@ class InterviewerService:
                 to_status=target.value,
                 reviewed_by=admin_id,
                 notes=request.reason,
+                reason_category=request.reason_category,
             )
         )
         if target is VerificationStatus.VERIFIED:
@@ -730,7 +747,15 @@ class InterviewerService:
             )
         elif target in {VerificationStatus.REJECTED, VerificationStatus.SUSPENDED}:
             self._add_event(
-                f"interviewer.verification.{target.value}.v1", {"interviewer_id": str(user_id)}
+                f"interviewer.verification.{target.value}.v1",
+                {
+                    "interviewer_id": str(user_id),
+                    **(
+                        {"reason_category": request.reason_category}
+                        if target is VerificationStatus.SUSPENDED
+                        else {}
+                    ),
+                },
             )
         await self._session.commit()
         return await self.get_verification(user_id, include_history=True)
@@ -924,7 +949,13 @@ class InterviewerService:
     async def replace_weekly_rules(
         self, user_id: UUID, request: WeeklyRulesReplaceRequest
     ) -> list[WeeklyAvailabilityRule]:
-        await self.get_profile(user_id)
+        profile = await self.get_profile(user_id)
+        if profile.verification_status != VerificationStatus.VERIFIED:
+            raise ServiceError(
+                code="interviewer_verification_required",
+                message="Complete interviewer verification before publishing availability.",
+                status_code=403,
+            )
         await self._session.execute(
             delete(WeeklyAvailabilityRule).where(WeeklyAvailabilityRule.user_id == user_id)
         )
@@ -1073,7 +1104,12 @@ class InterviewerService:
         return profile
 
     async def review(
-        self, user_id: UUID, admin_id: UUID, target: VerificationStatus, reason: str | None = None
+        self,
+        user_id: UUID,
+        admin_id: UUID,
+        target: VerificationStatus,
+        reason: str | None = None,
+        reason_category: str | None = None,
     ) -> InterviewerProfile:
         self._prevent_self_review(user_id, admin_id)
         profile = await self._locked_profile(user_id)
@@ -1131,6 +1167,7 @@ class InterviewerService:
                 to_status=target.value,
                 reviewed_by=admin_id,
                 notes=reason,
+                reason_category=reason_category,
             )
         )
         if target is VerificationStatus.VERIFIED:
@@ -1148,7 +1185,11 @@ class InterviewerService:
                 {"user_id": str(user_id), "reason": reason or ""},
             )
             self._add_event(
-                "interviewer.verification.suspended.v1", {"interviewer_id": str(user_id)}
+                "interviewer.verification.suspended.v1",
+                {
+                    "interviewer_id": str(user_id),
+                    "reason_category": reason_category,
+                },
             )
         await self._session.commit()
         return profile

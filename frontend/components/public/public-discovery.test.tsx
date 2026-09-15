@@ -27,6 +27,41 @@ const interviewers = [
         skill_name: "Python",
         experience_years: "10.0",
       },
+      {
+        id: "skill-2",
+        domain: "Backend",
+        topic: "Databases",
+        skill_name: "PostgreSQL",
+        experience_years: "8.0",
+      },
+      {
+        id: "skill-3",
+        domain: "Cloud",
+        topic: "AWS",
+        skill_name: "AWS",
+        experience_years: "6.0",
+      },
+      {
+        id: "skill-4",
+        domain: "Architecture",
+        topic: "Systems",
+        skill_name: "System design",
+        experience_years: "7.0",
+      },
+      {
+        id: "skill-5",
+        domain: "DevOps",
+        topic: "Containers",
+        skill_name: "Docker",
+        experience_years: "5.0",
+      },
+      {
+        id: "skill-6",
+        domain: "Backend",
+        topic: "APIs",
+        skill_name: "FastAPI",
+        experience_years: "4.0",
+      },
     ],
     interview_languages: ["English"],
     roundready_verified: true,
@@ -59,7 +94,7 @@ describe("PublicDiscovery", () => {
     mocks.listSlots.mockResolvedValue(slots);
   });
   afterEach(cleanup);
-  it("shows verified interviewer details, availability, price, and a login-gated booking link", async () => {
+  it("shows compact comparison details and a login-gated booking link", async () => {
     render(<PublicDiscovery />);
     expect(
       await screen.findByText("Backend interview coach"),
@@ -67,10 +102,22 @@ describe("PublicDiscovery", () => {
     expect(screen.getByText("RoundReady Verified")).toBeInTheDocument();
     expect(screen.getByText("Jagadisha V")).toBeInTheDocument();
     expect(screen.getByText("₹200")).toBeInTheDocument();
-    expect(screen.getByText("Interview language: English")).toBeInTheDocument();
+    expect(screen.getByText("Interview language")).toBeInTheDocument();
+    expect(screen.getByText("Next availability")).toBeInTheDocument();
+    expect(screen.getByText("Backend")).toBeInTheDocument();
+    expect(screen.getByText("Python")).toBeInTheDocument();
+    expect(screen.getByText("+1 more")).toBeInTheDocument();
     expect(
-      screen.getByText("Backend · Python", { selector: "p" }),
-    ).toBeInTheDocument();
+      screen.queryByText("Distributed systems specialist"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/Professional experience/),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/Screening/)).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View profile" })).toHaveAttribute(
+      "href",
+      "/interviewers/11111111-1111-4111-8111-111111111111",
+    );
     const link = screen.getByRole("link", { name: "Book interview" });
     expect(link).toHaveAttribute(
       "href",

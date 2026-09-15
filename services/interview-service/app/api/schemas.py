@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from app.domain.models import ReadinessLevel, SessionStatus
@@ -77,6 +78,7 @@ class SessionResponse(BaseModel):
 
 
 class JoinResponse(BaseModel):
+    provider: str
     token: str
     expires_at: datetime
     join_url: str
@@ -136,3 +138,8 @@ class FeedbackResponse(BaseModel):
     readiness_level: ReadinessLevel
     total_score: int
     submitted_at: datetime
+
+
+class LocalAttendanceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    event_type: Literal["joined", "left"]

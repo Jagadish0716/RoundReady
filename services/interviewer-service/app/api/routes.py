@@ -350,9 +350,7 @@ async def record_screening(
     session: DatabaseSession,
 ) -> VerificationDetailResponse:
     return VerificationDetailResponse.model_validate(
-        await InterviewerService(session).record_screening(
-            interviewer_id, admin.user_id, request
-        )
+        await InterviewerService(session).record_screening(interviewer_id, admin.user_id, request)
     )
 
 
@@ -384,7 +382,11 @@ async def suspend(
 ) -> ProfileResponse:
     return ProfileResponse.model_validate(
         await InterviewerService(session).review(
-            interviewer_id, admin.user_id, VerificationStatus.SUSPENDED, request.reason
+            interviewer_id,
+            admin.user_id,
+            VerificationStatus.SUSPENDED,
+            request.admin_note,
+            request.reason_category,
         )
     )
 
@@ -396,3 +398,50 @@ async def reactivate(
     return ProfileResponse.model_validate(
         await InterviewerService(session).reactivate(interviewer_id, admin.user_id)
     )
+
+
+@router.get("/internal/availability")
+async def availability_snapshot(
+    _admin: AdminIdentity, session: DatabaseSession
+) -> list[dict[str, object]]:
+    from datetime import UTC, datetime
+
+    from app.domain.models import InterviewerProfile
+    from sqlalchemy import select
+
+    observed_at = datetime.now(UTC).isoformat()
+    profiles = (await session.scalars(select(InterviewerProfile))).all()
+    service = InterviewerService(session)
+    result: list[dict[str, object]] = []
+    for profile in profiles:
+        eligible = (
+            profile.deleted_at is None
+            and profile.verification_status == VerificationStatus.VERIFIED
+        )
+        result.append(
+            {
+                "interviewer_id": str(profile.user_id),
+                "verified": eligible,
+                "deleted": profile.deleted_at is not None,
+                "observed_at": observed_at,
+                "rules": [
+                    WeeklyRuleResponse.model_validate(x).model_dump(mode="json")
+                    for x in await service.list_weekly_rules(profile.user_id)
+                ]
+                if eligible
+                else [],
+                "blockouts": [
+                    BlockoutResponse.model_validate(x).model_dump(mode="json")
+                    for x in await service.list_blockouts(profile.user_id)
+                ]
+                if eligible
+                else [],
+                "skills": [
+                    SkillResponse.model_validate(x).model_dump(mode="json")
+                    for x in await service.list_skills(profile.user_id)
+                ]
+                if eligible
+                else [],
+            }
+        )
+    return result

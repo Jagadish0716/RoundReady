@@ -6,6 +6,7 @@ from app.api.schemas import (
     FeedbackCreate,
     FeedbackResponse,
     JoinResponse,
+    LocalAttendanceRequest,
     RubricCreate,
     RubricResponse,
     SessionCreate,
@@ -28,7 +29,6 @@ from app.domain.models import (
     Rubric,
     SessionStatus,
 )
-from app.domain.providers import ParticipantAccess
 from fastapi import APIRouter
 from roundready_common.errors import ServiceError
 
@@ -100,8 +100,14 @@ async def join(
     db: DatabaseSession,
     provider: Provider,
     settings: AppSettings,
-) -> ParticipantAccess:
-    return await service(db, provider, settings).join(session_id, identity)
+) -> JoinResponse:
+    access = await service(db, provider, settings).join(session_id, identity)
+    return JoinResponse(
+        token=access.token,
+        expires_at=access.expires_at,
+        join_url=access.join_url,
+        provider=provider.name,
+    )
 
 
 @router.post("/sessions/{session_id}/start", response_model=SessionResponse)
@@ -199,3 +205,104 @@ async def feedback(
             code="candidate_role_required", message="Candidate role is required", status_code=403
         )
     return await service(db, provider, settings).feedback(session_id, identity.user_id)
+
+
+@router.post("/internal/rubrics/default", response_model=RubricResponse)
+async def default_rubric(_admin: AdminIdentity, db: DatabaseSession) -> Rubric:
+    from uuid import NAMESPACE_URL, uuid5
+
+    from sqlalchemy import select
+    from sqlalchemy.dialects.postgresql import insert
+
+    rubric_id = uuid5(NAMESPACE_URL, "roundready:general-interview-rubric:v1")
+    await db.execute(
+        insert(Rubric)
+        .values(
+            id=rubric_id,
+            domain="general",
+            topic="professional_skills",
+            experience_level="all",
+            version=1,
+            maximum_score=30,
+            active=True,
+            criteria=[
+                {
+                    "key": "technical",
+                    "label": "Technical understanding",
+                    "weight": 40,
+                    "maximum_score": 10,
+                },
+                {
+                    "key": "problem_solving",
+                    "label": "Problem solving",
+                    "weight": 40,
+                    "maximum_score": 10,
+                },
+                {
+                    "key": "communication",
+                    "label": "Communication",
+                    "weight": 20,
+                    "maximum_score": 10,
+                },
+            ],
+        )
+        .on_conflict_do_nothing()
+    )
+    await db.commit()
+    rubric = await db.scalar(
+        select(Rubric).where(
+            Rubric.domain == "general",
+            Rubric.topic == "professional_skills",
+            Rubric.experience_level == "all",
+            Rubric.version == 1,
+        )
+    )
+    assert rubric is not None
+    return rubric
+
+
+@router.get("/sessions/{session_id}/attendance", response_model=list[AttendanceResponse])
+async def participant_attendance(
+    session_id: UUID,
+    identity: AuthenticatedIdentity,
+    db: DatabaseSession,
+    provider: Provider,
+    settings: AppSettings,
+) -> list[ParticipantAttendance]:
+    from sqlalchemy import select
+
+    await service(db, provider, settings).get_session(session_id, identity)
+    return list(
+        (
+            await db.scalars(
+                select(ParticipantAttendance).where(ParticipantAttendance.session_id == session_id)
+            )
+        ).all()
+    )
+
+
+@router.post("/sessions/{session_id}/development/attendance", response_model=AttendanceResponse)
+async def local_attendance(
+    session_id: UUID,
+    data: LocalAttendanceRequest,
+    identity: AuthenticatedIdentity,
+    db: DatabaseSession,
+    provider: Provider,
+    settings: AppSettings,
+) -> ParticipantAttendance:
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    if (
+        settings.environment not in {"development", "test"}
+        or settings.video_provider != "development"
+    ):
+        raise ServiceError(
+            code="development_room_disabled", message="Local room is unavailable", status_code=404
+        )
+    application = service(db, provider, settings)
+    # Enforce participant identity, lifecycle and scheduled access window through normal join.
+    await application.join(session_id, identity)
+    return await application.attendance(
+        session_id, f"local-{uuid4()}", identity.user_id, data.event_type, datetime.now(UTC)
+    )

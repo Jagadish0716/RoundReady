@@ -146,6 +146,8 @@ function profileInput(value: InterviewerProfile): InterviewerProfileInput {
 function errorMessage(error: unknown): string {
   if (!(error instanceof ApiClientError))
     return "The request could not be completed.";
+  if (error.code === "interviewer_verification_required")
+    return "Complete interviewer verification before publishing availability.";
   if (error.status === 422)
     return "Some values are invalid. Review them and try again.";
   if (error.status === 403)
@@ -383,17 +385,49 @@ export function InterviewerWorkspace({
         const errors = Array.isArray(caught.details?.errors)
           ? caught.details.errors
           : [];
-        const text = JSON.stringify(errors);
-        if (text.includes("overlap"))
-          setError("Availability ranges for the same day cannot overlap.");
-        else if (text.includes("timezone"))
-          setError("Select a valid IANA timezone.");
-        else if (text.includes("start_time"))
-          setError("Start time is invalid.");
-        else if (text.includes("end_time") || text.includes("before"))
-          setError("End time must be later than start time.");
-        else
-          setError("Check the highlighted availability fields and try again.");
+        const mapped: RuleErrors = {};
+        const messages: string[] = [];
+        for (const detail of errors) {
+          if (!detail || typeof detail !== "object") continue;
+          const { loc, msg, type } = detail as {
+            loc?: unknown;
+            msg?: unknown;
+            type?: unknown;
+          };
+          const path = Array.isArray(loc) ? loc : [];
+          const text = typeof msg === "string" ? msg : "";
+          const field = path.at(-1);
+          let target: RuleField = "range";
+          let message =
+            "Availability could not be saved. Reload the page and try again.";
+          if (text.includes("overlap"))
+            message = "Availability ranges for the same day cannot overlap.";
+          else if (text.includes("before"))
+            message = "End time must be later than start time.";
+          else if (field === "timezone" || text.includes("timezone")) {
+            target = "timezone";
+            message = "Select a valid IANA timezone.";
+          } else if (field === "start_time" || field === "end_time") {
+            target = field;
+            message =
+              field === "start_time"
+                ? "Start time is invalid."
+                : "End time is invalid.";
+          } else if (field === "weekday")
+            message = "Select a valid day of the week.";
+          else if (type === "extra_forbidden")
+            message =
+              "This availability row contains unsupported data. Reload the page and try again.";
+          const index = path[path.indexOf("rules") + 1];
+          if (typeof index === "number" && rules[index])
+            (mapped[index] ??= {})[target] = message;
+          messages.push(message);
+        }
+        setRuleErrors(mapped);
+        setError(
+          messages[0] ??
+            "Availability could not be saved. Reload the page and try again.",
+        );
       } else setError(errorMessage(caught));
     } finally {
       setSaving(null);

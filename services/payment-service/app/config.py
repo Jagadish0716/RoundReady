@@ -28,7 +28,8 @@ class Settings(BaseSettings):
         default="roundready.events.dlx",
         validation_alias="RABBITMQ_DEAD_LETTER_EXCHANGE",
     )
-    session_price_paise: int = 20000
+    booking_service_url: str = "http://booking-service:8000"
+    session_price_paise: int = Field(default=20000, ge=20000, le=20000)
     payment_provider: Literal["development", "razorpay"] = "razorpay"
     internal_identity_secret: SecretStr = Field(
         default=SecretStr(""), validation_alias="INTERNAL_IDENTITY_SECRET"

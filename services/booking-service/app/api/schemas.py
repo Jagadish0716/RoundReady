@@ -96,7 +96,9 @@ class PaymentEventRequest(BaseModel):
 class InterviewerEligibilityEventRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event_id: UUID
+    occurred_at: datetime
     interviewer_id: UUID
     event_type: Annotated[
-        str, Field(pattern=r"^interviewer\.verification\.(approved|rejected|suspended)\.v1$")
+        str,
+        Field(pattern=r"^interviewer\.(verification\.(approved|rejected|suspended)|deleted)\.v1$"),
     ]

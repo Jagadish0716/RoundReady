@@ -74,11 +74,16 @@ def client(postgres_url: str) -> Iterator[TestClient]:
 
     get_settings.cache_clear()
     command.upgrade(Config(str(Path(__file__).parents[1] / "alembic.ini")), "head")
-    from app.dependencies import get_payment_provider
+    from unittest.mock import AsyncMock
+
+    from app.dependencies import get_booking_client, get_payment_provider
+    from app.infrastructure.booking import BookingClient
     from app.main import create_app
 
     app = create_app()
     app.dependency_overrides[get_payment_provider] = lambda: FAKE_PROVIDER
+    booking_client = AsyncMock(spec=BookingClient)
+    app.dependency_overrides[get_booking_client] = lambda: booking_client
     with TestClient(app) as value:
         yield value
 

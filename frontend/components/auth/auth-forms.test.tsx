@@ -34,13 +34,13 @@ vi.mock("@/lib/auth/api", () => ({
 }));
 
 function completeLogin(): void {
-  fireEvent.change(screen.getByLabelText("Email"), {
+  fireEvent.change(screen.getByLabelText("Email address"), {
     target: { value: "user@example.com" },
   });
   fireEvent.change(screen.getByLabelText("Password"), {
     target: { value: "Password123!" },
   });
-  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+  fireEvent.click(screen.getByRole("button", { name: "Sign in as Candidate" }));
 }
 
 function completeRegistration(): void {
@@ -86,6 +86,60 @@ describe("authentication forms", () => {
     );
   });
 
+  it("updates the login context for an interviewer", async () => {
+    mocks.login.mockResolvedValue({ role: "interviewer" });
+    render(<LoginForm />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Interviewer" }));
+
+    expect(
+      screen.getByText("Sign in to your RoundReady interviewer account."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Sign in as Interviewer" }),
+    ).toBeInTheDocument();
+  });
+
+  it("prevents double submission while login is running", async () => {
+    let resolveLogin: ((value: { role: "candidate" }) => void) | undefined;
+    mocks.login.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveLogin = resolve;
+        }),
+    );
+    render(<LoginForm />);
+    completeLogin();
+
+    const submit = screen.getByRole("button", { name: "Signing in…" });
+    expect(submit).toBeDisabled();
+    fireEvent.click(submit);
+    expect(mocks.login).toHaveBeenCalledTimes(1);
+
+    resolveLogin?.({ role: "candidate" });
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith("/candidate"),
+    );
+  });
+
+  it("uses the local optional image path and omits unavailable auth features", () => {
+    const { container } = render(<LoginForm />);
+
+    expect(container.innerHTML).toContain("/images/auth/candidate-login.jpg");
+    expect(
+      screen.queryByRole("link", { name: /forgot password/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /google/i }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Password")).toHaveAttribute(
+      "type",
+      "password",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Show password" }));
+    expect(screen.getByLabelText("Password")).toHaveAttribute("type", "text");
+  });
+
   it("returns a candidate to preserved booking context", async () => {
     mocks.requested = "/candidate?slot=slot-1&interviewer=interviewer-1";
     mocks.login.mockResolvedValue({ role: "candidate" });
@@ -121,6 +175,24 @@ describe("authentication forms", () => {
     completeLogin();
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Email or password is incorrect",
+    );
+  });
+
+  it("explains an intentionally blocked interviewer account", async () => {
+    mocks.login.mockRejectedValue(
+      new ApiClientError(
+        "Blocked",
+        403,
+        "forbidden",
+        "account_blocked",
+        { reason_category: "Misleading information" },
+        null,
+      ),
+    );
+    render(<LoginForm />);
+    completeLogin();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "blocked and can no longer be used. Reason: Misleading information.",
     );
   });
 

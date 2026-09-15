@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
+import Link from "next/link";
+
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -89,6 +91,8 @@ export function CandidateBooking({
         const slot = await api.getPublicSlot(request, intentSlotId);
         if (slot.interviewer_id !== intentInterviewerId)
           throw new Error("invalid booking context");
+        bookingKey.current = crypto.randomUUID();
+        paymentKey.current = crypto.randomUUID();
         const held = await api.holdSlot(request, slot.id);
         setSelected(slot);
         setHold(held);
@@ -127,6 +131,8 @@ export function CandidateBooking({
     setError(null);
     setNotice(null);
     try {
+      bookingKey.current = crypto.randomUUID();
+      paymentKey.current = crypto.randomUUID();
       const held = await api.holdSlot(request, slot.id);
       setSelected(slot);
       setHold(held);
@@ -395,7 +401,10 @@ export function CandidateBooking({
           {booking.status === "confirmed" ? (
             <p className="text-sm text-green-700">
               Your slot is confirmed. Interview access will be available closer
-              to the scheduled time.
+              to the scheduled time.{" "}
+              <Link className="underline" href="/candidate/interviews">
+                Open interview sessions
+              </Link>
             </p>
           ) : null}
           {booking.status === "payment_failed" ? (

@@ -63,6 +63,7 @@ function api(path: string, options?: { method?: string }): unknown {
       token: "private-token",
       expires_at: "2030-01-01T10:05:00Z",
       join_url: "ws://livekit.local",
+      provider: "development",
     };
   if (path.endsWith("/start"))
     return {
@@ -106,8 +107,8 @@ describe("SessionWorkspace", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Enter interview room" }),
     );
-    expect(await screen.findByText(/Room access ready/)).toHaveTextContent(
-      "Recording is disabled",
+    expect(await screen.findByText(/Local session room/)).toHaveTextContent(
+      "Video and audio are not connected",
     );
     expect(document.body).not.toHaveTextContent("private-token");
     expect(mocks.request).toHaveBeenCalledWith(

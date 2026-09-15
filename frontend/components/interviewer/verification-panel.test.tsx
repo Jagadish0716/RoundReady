@@ -142,3 +142,57 @@ describe("VerificationPanel", () => {
     );
   });
 });
+
+it("submits professional evidence for Admin review and refreshes Reviewed state", async () => {
+  let submitted = false;
+  let reviewed = false;
+  mocks.request.mockImplementation(
+    (path: string, options?: { method?: string }) => {
+      if (path.endsWith("/profile")) return Promise.resolve(profile);
+      if (path.endsWith("/evidence") && options?.method === "PUT")
+        submitted = true;
+      return Promise.resolve({
+        ...detail,
+        evidence: submitted
+          ? [
+              {
+                id: "evidence-1",
+                evidence_type: "github_or_portfolio",
+                value_reference: profile.github_url,
+                status: reviewed ? "verified" : "pending",
+                reviewer_notes: reviewed ? "Portfolio reviewed" : null,
+              },
+            ]
+          : [],
+      });
+    },
+  );
+  render(<VerificationPanel />);
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Use my GitHub profile" }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Submit professional evidence" }),
+  );
+  expect(
+    await screen.findByText(/Submitted · Awaiting review/),
+  ).toBeInTheDocument();
+  expect(mocks.request).toHaveBeenCalledWith(
+    "/v1/interviewers/me/verification/evidence",
+    {
+      method: "PUT",
+      body: {
+        evidence_type: "github_or_portfolio",
+        value_reference: profile.github_url,
+      },
+    },
+  );
+  reviewed = true;
+  fireEvent.click(
+    screen.getByRole("button", { name: "Refresh verification status" }),
+  );
+  expect(
+    await screen.findByText(/github or portfolio: Reviewed/),
+  ).toBeInTheDocument();
+  cleanup();
+});

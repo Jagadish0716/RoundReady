@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class CreateOrderRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     booking_id: UUID
 
 

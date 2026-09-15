@@ -255,6 +255,119 @@ describe("InterviewerWorkspace", () => {
     );
   });
 
+  it("resaves loaded rows without sending response IDs", async () => {
+    const loaded = [1, 0].map((weekday) => ({
+      id: `rule-${weekday}`,
+      weekday,
+      start_time: "18:00:00",
+      end_time: "20:00:00",
+      timezone: "Asia/Kolkata",
+    }));
+    mocks.request.mockImplementation(
+      (path: string, options?: { method?: string }) =>
+        Promise.resolve(
+          path.endsWith("/availability/weekly")
+            ? loaded
+            : defaultApi(path, options),
+        ),
+    );
+    render(<InterviewerWorkspace section="availability" />);
+    await screen.findByLabelText("Start time 1");
+    fireEvent.click(screen.getByRole("button", { name: "Save availability" }));
+    await screen.findByText("Weekly availability saved.");
+    expect(mocks.request).toHaveBeenCalledWith(
+      "/v1/interviewers/me/availability/weekly",
+      {
+        method: "PUT",
+        body: {
+          rules: [1, 0].map((weekday) => ({
+            weekday,
+            start_time: "18:00",
+            end_time: "20:00",
+            timezone: "Asia/Kolkata",
+          })),
+        },
+      },
+    );
+  });
+
+  it.each([
+    [
+      ["body", "rules", 0],
+      "start_time must be before end_time",
+      "End time must be later than start time.",
+      "End time 1",
+    ],
+    [
+      ["body", "rules", 0],
+      "timezone must be a valid IANA timezone",
+      "Select a valid IANA timezone.",
+      "Timezone 1",
+    ],
+    [
+      ["body", "rules", 0, "id"],
+      "Extra inputs are not permitted",
+      "This availability row contains unsupported data. Reload the page and try again.",
+      "End time 1",
+    ],
+  ])("shows backend row error %s", async (loc, msg, message, label) => {
+    mocks.request.mockImplementation(
+      (path: string, options?: { method?: string }) => {
+        if (options?.method === "PUT")
+          return Promise.reject(
+            new ApiClientError(
+              "Request validation failed",
+              422,
+              "validation",
+              "validation_error",
+              { errors: [{ loc, msg, type: "extra_forbidden" }] },
+              null,
+            ),
+          );
+        return Promise.resolve(defaultApi(path, options));
+      },
+    );
+    render(<InterviewerWorkspace section="availability" />);
+    await screen.findByText("No weekly availability set.");
+    fireEvent.click(screen.getByRole("button", { name: "Add time" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save availability" }));
+    expect(
+      (await screen.findAllByText(message as string)).length,
+    ).toBeGreaterThan(1);
+    expect(screen.getByLabelText(label as string)).toHaveAttribute(
+      "aria-invalid",
+      "true",
+    );
+  });
+
+  it("shows the verification business error", async () => {
+    mocks.request.mockImplementation(
+      (path: string, options?: { method?: string }) => {
+        if (options?.method === "PUT")
+          return Promise.reject(
+            new ApiClientError(
+              "Complete interviewer verification before publishing availability.",
+              403,
+              "forbidden",
+              "interviewer_verification_required",
+              null,
+              null,
+            ),
+          );
+        return Promise.resolve(defaultApi(path, options));
+      },
+    );
+    render(<InterviewerWorkspace section="availability" />);
+    await screen.findByText("No weekly availability set.");
+    fireEvent.click(screen.getByRole("button", { name: "Add time" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save availability" }));
+    expect(
+      await screen.findByText(
+        "Complete interviewer verification before publishing availability.",
+      ),
+    ).toBeInTheDocument();
+  });
+
   it("creates and saves a weekly availability rule", async () => {
     const savedRule = {
       id: "rule-1",

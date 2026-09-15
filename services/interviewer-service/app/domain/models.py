@@ -256,6 +256,7 @@ class VerificationReviewHistory(Base):
     to_status: Mapped[str] = mapped_column(String(32))
     reviewed_by: Mapped[UUID] = mapped_column()
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason_category: Mapped[str | None] = mapped_column(String(96), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

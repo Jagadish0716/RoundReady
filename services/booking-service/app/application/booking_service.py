@@ -89,7 +89,7 @@ class BookingService:
     ) -> list[Slot]:
         now = datetime.now(UTC)
         filters = [
-            Slot.starts_at >= starts_after,
+            Slot.starts_at >= max(starts_after, now),
             Slot.ends_at <= ends_before,
             Slot.interviewer_id.in_(
                 select(InterviewerEligibility.interviewer_id).where(
@@ -114,6 +114,7 @@ class BookingService:
         slot = await self.session.scalar(
             select(Slot).where(
                 Slot.id == slot_id,
+                Slot.starts_at > now,
                 Slot.interviewer_id.in_(
                     select(InterviewerEligibility.interviewer_id).where(
                         InterviewerEligibility.verified.is_(True)
@@ -149,6 +150,7 @@ class BookingService:
             now = datetime.now(UTC)
             if (
                 slot is None
+                or slot.starts_at <= now
                 or eligibility is None
                 or not eligibility.verified
                 or slot.status in {SlotStatus.BOOKED, SlotStatus.BLOCKED}
@@ -198,6 +200,7 @@ class BookingService:
         now = datetime.now(UTC)
         if (
             slot is None
+            or slot.starts_at <= now
             or eligibility is None
             or not eligibility.verified
             or slot.status != SlotStatus.HELD
@@ -393,16 +396,30 @@ class BookingService:
         return cast(Booking, booking)
 
     async def set_interviewer_eligibility(
-        self, event_id: UUID, interviewer_id: UUID, verified: bool, event_type: str
+        self,
+        event_id: UUID,
+        interviewer_id: UUID,
+        verified: bool,
+        event_type: str,
+        occurred_at: datetime | None = None,
     ) -> None:
         if await self.session.get(ProcessedEvent, event_id):
             return
+        when = occurred_at or utc_now()
+        deleted = event_type == "interviewer.deleted.v1"
         await self.session.execute(
             insert(InterviewerEligibility)
-            .values(interviewer_id=interviewer_id, verified=verified, updated_at=utc_now())
+            .values(
+                interviewer_id=interviewer_id,
+                verified=verified and not deleted,
+                deleted=deleted,
+                updated_at=when,
+            )
             .on_conflict_do_update(
                 index_elements=[InterviewerEligibility.interviewer_id],
-                set_={"verified": verified, "updated_at": utc_now()},
+                set_={"verified": verified and not deleted, "updated_at": when, "deleted": deleted},
+                where=(InterviewerEligibility.updated_at < when)
+                & InterviewerEligibility.deleted.is_(False),
             )
         )
         self.session.add(ProcessedEvent(event_id=event_id, event_type=event_type))

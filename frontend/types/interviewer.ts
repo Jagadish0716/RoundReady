@@ -11,6 +11,15 @@ export const interviewerDomains = [
 export type InterviewerDomain = (typeof interviewerDomains)[number];
 export type VerificationStatus =
   "pending" | "under_review" | "verified" | "rejected" | "suspended";
+
+export type ModerationReasonCategory =
+  | "Misleading information"
+  | "False/fraudulent professional information"
+  | "Verification concerns"
+  | "Repeated no-shows"
+  | "Candidate complaints"
+  | "Platform policy violation"
+  | "Other";
 export type VerificationCheckType =
   | "email_verified"
   | "mobile_verified"
@@ -54,6 +63,7 @@ export interface VerificationHistory {
   to_status: VerificationStatus;
   reviewed_by: string;
   notes: string | null;
+  reason_category?: ModerationReasonCategory | null;
   created_at: string;
 }
 
@@ -93,6 +103,7 @@ export interface VerificationReviewInput {
     | "suspend"
     | "reactivate";
   reason?: string;
+  reason_category?: ModerationReasonCategory;
   checks?: Partial<Record<VerificationCheckType, boolean>>;
   evidence_statuses?: Record<string, EvidenceStatus>;
   screening?: Omit<ScreeningResult, "reviewed_at">;

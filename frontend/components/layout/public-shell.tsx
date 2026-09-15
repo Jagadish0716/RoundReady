@@ -1,8 +1,17 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import { Logo } from "@/components/brand/logo";
 
 export function PublicShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+
+  if (pathname === "/login") {
+    return <main>{children}</main>;
+  }
+
   return (
     <div className="mx-auto min-h-screen max-w-5xl px-6 py-8">
       <header className="mb-12 flex items-center justify-between">

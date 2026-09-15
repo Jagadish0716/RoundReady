@@ -3,6 +3,12 @@ from app.config import Settings
 from pydantic import ValidationError
 
 
+@pytest.fixture(autouse=True)
+def isolated_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in ("DATABASE_POOLING", "JWT_ISSUER", "JWT_AUDIENCE"):
+        monkeypatch.delenv(key, raising=False)
+
+
 def test_development_and_test_load_without_production_secrets() -> None:
     assert Settings(environment="development").environment == "development"
     assert Settings(environment="test").environment == "test"

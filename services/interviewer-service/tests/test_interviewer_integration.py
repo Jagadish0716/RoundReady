@@ -128,7 +128,11 @@ def test_anonymous_public_discovery_returns_only_verified_safe_data(
     client.post(
         f"/v1/admin/interviewers/{suspended['X-User-ID']}/suspend",
         headers=admin,
-        json={"reason": "Suspended"},
+        json={
+            "reason": "Verification concerns",
+            "reason_category": "Verification concerns",
+            "admin_note": "Suspended",
+        },
     )
     discovered = client.get("/v1/public/interviewers")
     assert discovered.status_code == 200
@@ -459,7 +463,13 @@ def test_verification_approve_suspend_reactivate_and_events(
     verified = client.get("/v1/admin/interviewers?verification_status=verified", headers=admin)
     assert user_id in {item["user_id"] for item in verified.json()}
     suspended = client.post(
-        f"/v1/admin/interviewers/{user_id}/suspend", headers=admin, json={"reason": "Policy review"}
+        f"/v1/admin/interviewers/{user_id}/suspend",
+        headers=admin,
+        json={
+            "reason": "Misleading information",
+            "reason_category": "Misleading information",
+            "admin_note": "Profile claims require review",
+        },
     )
     assert suspended.json()["verification_status"] == "suspended"
     suspended_list = client.get(
@@ -582,6 +592,25 @@ def test_weekly_availability_and_blockouts_publish_changes(
     postgres_url: str,
 ) -> None:
     user_id = create_profile(client, interviewer_headers, profile)["user_id"]
+    denied = client.put(
+        "/v1/me/availability/weekly",
+        headers=interviewer_headers,
+        json={
+            "rules": [
+                {
+                    "weekday": 1,
+                    "start_time": "18:00",
+                    "end_time": "20:00",
+                    "timezone": "Asia/Kolkata",
+                }
+            ]
+        },
+    )
+    assert denied.status_code == 403
+    assert denied.json()["error"]["message"] == (
+        "Complete interviewer verification before publishing availability."
+    )
+    approve_interviewer(client, interviewer_headers, headers("admin"), postgres_url)
     weekly = client.put(
         "/v1/me/availability/weekly",
         headers=interviewer_headers,
@@ -754,3 +783,45 @@ def test_no_booking_or_auth_tables(client: TestClient, postgres_url: str) -> Non
         "weekly_availability_rules",
         "availability_blockouts",
     } <= tables
+
+
+def test_replacing_reviewed_evidence_requires_fresh_review(
+    client: TestClient,
+    profile: dict[str, object],
+) -> None:
+    interviewer, admin = headers(), headers("admin")
+    create_profile(client, interviewer, profile)
+    base = f"/v1/admin/interviewers/{interviewer['X-User-ID']}/verification"
+    own = "/v1/me/verification/evidence"
+    submitted = client.put(
+        own,
+        headers=interviewer,
+        json={
+            "evidence_type": "github_or_portfolio",
+            "value_reference": "https://github.com/original",
+        },
+    )
+    evidence_id = submitted.json()["evidence"][0]["id"]
+    reviewed = client.post(
+        f"{base}/evidence/{evidence_id}/review", headers=admin, json={"status": "verified"}
+    )
+    assert "professional_evidence_reviewed" not in reviewed.json()["missing_requirements"]
+    replaced = client.put(
+        own,
+        headers=interviewer,
+        json={
+            "evidence_type": "github_or_portfolio",
+            "value_reference": "https://github.com/replaced",
+        },
+    )
+    assert replaced.status_code == 200
+    assert replaced.json()["evidence"][0]["status"] == "pending"
+    assert "professional_evidence_reviewed" in replaced.json()["missing_requirements"]
+    assert (
+        client.post(
+            f"{base}/evidence/{evidence_id}/review",
+            headers=interviewer,
+            json={"status": "verified"},
+        ).status_code
+        == 403
+    )

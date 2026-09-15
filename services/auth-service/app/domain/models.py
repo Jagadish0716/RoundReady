@@ -32,6 +32,12 @@ class Credential(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    access_status: Mapped[str] = mapped_column(String(32), default="active", nullable=False)
+    access_reason_category: Mapped[str | None] = mapped_column(String(96), nullable=True)
+    lifecycle_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    lifecycle_event_id: Mapped[UUID | None] = mapped_column(nullable=True)
     email_verified_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

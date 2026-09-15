@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { ApiClientError } from "@/lib/api/client";
 import * as api from "@/lib/api/interview";
 import type {
+  Attendance,
   FeedbackReport,
   InterviewSession,
   ReadinessLevel,
@@ -54,6 +55,7 @@ export function SessionWorkspace({
   const [rubric, setRubric] = useState<Rubric | null>(null);
   const [feedback, setFeedback] = useState<FeedbackReport | null>(null);
   const [room, setRoom] = useState<RoomAccess | null>(null);
+  const [attendance, setAttendance] = useState<Attendance[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +107,46 @@ export function SessionWorkspace({
       active = false;
     };
   }, [request, role, selected]);
+
+  const selectedSessionId = selected?.id;
+  useEffect(() => {
+    if (!selectedSessionId) return;
+    let active = true;
+    const timer = setInterval(() => {
+      void Promise.all([
+        api.getSession(request, selectedSessionId),
+        api.getAttendance(request, selectedSessionId),
+      ])
+        .then(([session, participants]) => {
+          if (active) {
+            update(session);
+            setAttendance(participants);
+          }
+        })
+        .catch(() => {
+          /* Keep the last confirmed state during a temporary disconnect. */
+        });
+    }, 3000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [request, selectedSessionId]);
+
+  async function recordAttendance(eventType: "joined" | "left") {
+    if (!selected || busy) return;
+    setBusy("attendance");
+    setError(null);
+    try {
+      await api.localAttendance(request, selected.id, eventType);
+      setAttendance(await api.getAttendance(request, selected.id));
+      update(await api.getSession(request, selected.id));
+    } catch (caught) {
+      setError(messageFor(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   function update(authoritative: InterviewSession) {
     setSelected(authoritative);
@@ -276,11 +318,45 @@ export function SessionWorkspace({
             </Button>
           ) : null}
           {room ? (
-            <p className="text-sm text-green-700">
-              Room access ready at {room.join_url}; token expires{" "}
-              {new Date(room.expires_at).toLocaleTimeString()}. Recording is
-              disabled.
-            </p>
+            <div className="space-y-3 rounded-md bg-blue-50 p-4 text-sm">
+              <p>Your role: {role}</p>
+              {room.provider === "development" ? (
+                <>
+                  <p>
+                    Local session room. Video and audio are not connected.
+                    Attendance and feedback are saved for both participants.
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      disabled={busy !== null}
+                      onClick={() => void recordAttendance("joined")}
+                    >
+                      Mark joined
+                    </Button>
+                    <Button
+                      disabled={busy !== null}
+                      variant="outline"
+                      onClick={() => void recordAttendance("left")}
+                    >
+                      Mark left
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p>
+                  Room access issued until{" "}
+                  {new Date(room.expires_at).toLocaleTimeString()}. A video
+                  client is required to connect.
+                </p>
+              )}
+              {attendance.map((participant) => (
+                <p key={participant.user_id}>
+                  {participant.role}:{" "}
+                  {participant.connected ? "Present" : "Away"} ·{" "}
+                  {participant.total_connected_seconds}s attended
+                </p>
+              ))}
+            </div>
           ) : null}
           {role === "interviewer" && selected.status === "ready" ? (
             <Button

@@ -58,6 +58,7 @@ async def run() -> None:
                         UUID(str(payload["interviewer_id"])),
                         event.event_type == "interviewer.verification.approved.v1",
                         event.event_type,
+                        event.occurred_at,
                     )
                 else:
                     await service.handle_payment(

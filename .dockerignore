@@ -25,3 +25,6 @@ coverage
 *.log
 .idea
 .vscode
+**/.mypy_cache
+**/.ruff_cache
+**/.terraform

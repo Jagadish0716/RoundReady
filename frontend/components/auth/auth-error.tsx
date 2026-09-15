@@ -11,6 +11,12 @@ export function authErrorMessage(
   }
   if (error.status === 401 && context === "login")
     return "Email or password is incorrect.";
+  if (error.code === "account_blocked" && context === "login") {
+    const category = error.details?.reason_category;
+    return `Your RoundReady interviewer account has been blocked and can no longer be used.${typeof category === "string" ? ` Reason: ${category}.` : ""}`;
+  }
+  if (error.code === "account_disabled" && context === "login")
+    return "This RoundReady interviewer account has been disabled and can no longer be used.";
   if (error.code === "email_verification_required" && context === "login")
     return "Your email has not been verified yet. Verify your email before continuing.";
   if (error.status === 422) return error.message;

@@ -1,6 +1,8 @@
 import asyncio
+from time import monotonic
 
 import structlog
+from app.application.availability import synchronize
 from app.application.booking_service import BookingService
 from app.application.outbox import publish_pending
 from app.config import get_settings
@@ -18,12 +20,16 @@ async def run() -> None:
     redis = create_redis_client(settings.redis_url, decode_responses=True)
     holds = RedisHoldStore(redis, settings.hold_ttl_seconds)
     publisher = RabbitEventPublisher(settings.rabbitmq_url, settings.rabbitmq_exchange)
+    last_sync = 0.0
     try:
         while True:
             try:
                 async with session_factory() as session:
                     expired = await BookingService(session, holds, settings).expire_holds()
                     published = await publish_pending(session, publisher)
+                    if monotonic() - last_sync >= settings.availability_sync_seconds:
+                        await synchronize(BookingService(session, holds, settings))
+                        last_sync = monotonic()
                 if expired or published:
                     logger.info(
                         "maintenance_batch", expired_holds=expired, published_events=published

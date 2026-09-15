@@ -1,6 +1,7 @@
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import psycopg
 import pytest
@@ -93,12 +94,49 @@ def test_both_roles_require_one_time_email_verification(
         assert "email=" not in url and "user_id=" not in url
         verified = client.post("/v1/auth/verify-email", json={"token": token})
         assert verified.status_code == 200
-        assert client.post(
-            "/v1/auth/login", json={"email": user["email"], "password": user["password"]}
-        ).status_code == 200
+        assert (
+            client.post(
+                "/v1/auth/login", json={"email": user["email"], "password": user["password"]}
+            ).status_code
+            == 200
+        )
         replay = client.post("/v1/auth/verify-email", json={"token": token})
         assert replay.status_code == 200
         assert replay.json()["status"] == "already_verified"
+
+
+@pytest.mark.parametrize("role", ["candidate", "interviewer"])
+@pytest.mark.parametrize("endpoint", ["login", "refresh", "me"])
+def test_now_unverified_account_cannot_continue_session(
+    client: TestClient, register_user: Any, postgres_url: str, role: str, endpoint: str
+) -> None:
+    user = register_user(role=role)
+    tokens = login(client, user)
+    rotated = client.post("/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
+    assert rotated.status_code == 200
+    tokens = rotated.json()
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    assert client.get("/v1/auth/me", headers=headers).status_code == 200
+
+    # Simulate sessions issued before mandatory account-email verification.
+    with psycopg.connect(postgres_url.replace("postgresql+psycopg", "postgresql")) as connection:
+        connection.execute(
+            "UPDATE credentials SET email_verified_at = NULL WHERE id = %s", (user["id"],)
+        )
+    if endpoint == "me":
+        response = client.get("/v1/auth/me", headers=headers)
+    elif endpoint == "refresh":
+        response = client.post("/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]})
+    else:
+        response = client.post(
+            "/v1/auth/login", json={"email": user["email"], "password": user["password"]}
+        )
+    assert response.status_code == 403
+    assert response.json()["error"] == {
+        "code": "email_verification_required",
+        "message": "Verify your email before continuing.",
+        "details": None,
+    }
 
 
 def test_verification_invalid_token_and_generic_resend(
@@ -106,9 +144,7 @@ def test_verification_invalid_token_and_generic_resend(
 ) -> None:
     invalid = client.post("/v1/auth/verify-email", json={"token": "x" * 48})
     assert invalid.status_code == 400
-    missing = client.post(
-        "/v1/auth/resend-verification", json={"email": "missing@example.in"}
-    )
+    missing = client.post("/v1/auth/resend-verification", json={"email": "missing@example.in"})
     assert missing.status_code == 200
     user = register_user(verified=False)
     cooldown = client.post("/v1/auth/resend-verification", json={"email": user["email"]})
@@ -173,6 +209,16 @@ async def test_admin_bootstrap_is_hashed_login_capable_and_idempotent(
     response = client.post("/v1/auth/login", json={"email": email, "password": password})
     assert response.status_code == 200
     assert response.json()["access_token"]
+    rotated = client.post(
+        "/v1/auth/refresh", json={"refresh_token": response.json()["refresh_token"]}
+    )
+    assert rotated.status_code == 200
+    identity = client.get(
+        "/v1/auth/me", headers={"Authorization": f"Bearer {rotated.json()['access_token']}"}
+    )
+    assert identity.status_code == 200
+    assert identity.json()["role"] == "admin"
+    assert identity.json()["email_verified"] is True
     assert (
         client.post(
             "/v1/auth/login", json={"email": email, "password": "DifferentPassword1!"}
@@ -194,8 +240,15 @@ async def test_trusted_admin_reconciliation_is_explicit_idempotent_and_keeps_pas
         credential = await session.scalar(select(Credential).where(Credential.email == email))
         assert credential is not None
         original_password_hash = credential.password_hash
+        tokens = login(client, {"email": email, "password": password})
         credential.email_verified_at = None
         await session.commit()
+    for response in (
+        client.get("/v1/auth/me", headers={"Authorization": f"Bearer {tokens['access_token']}"}),
+        client.post("/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}),
+    ):
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "email_verification_required"
     blocked = client.post("/v1/auth/login", json={"email": email, "password": password})
     assert blocked.status_code == 403
     async with session_factory() as session:
@@ -208,16 +261,15 @@ async def test_trusted_admin_reconciliation_is_explicit_idempotent_and_keeps_pas
     assert credential is not None
     assert credential.email_verified_at is not None
     assert credential.password_hash == original_password_hash
-    assert client.post(
-        "/v1/auth/login", json={"email": email, "password": password}
-    ).status_code == 200
+    assert (
+        client.post("/v1/auth/login", json={"email": email, "password": password}).status_code
+        == 200
+    )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("role", ["candidate", "interviewer"])
-async def test_admin_reconciliation_refuses_public_accounts(
-    register_user: Any, role: str
-) -> None:
+async def test_admin_reconciliation_refuses_public_accounts(register_user: Any, role: str) -> None:
     from app.infrastructure.database import session_factory
 
     user = register_user(role=role, verified=False)
@@ -329,6 +381,9 @@ def test_disabled_user_is_denied_and_event_is_recorded(
         headers={"Authorization": f"Bearer {admin_tokens['access_token']}"},
     )
     assert disabled.status_code == 200
+    refresh = client.post("/v1/auth/refresh", json={"refresh_token": user_tokens["refresh_token"]})
+    assert refresh.status_code == 401
+    assert refresh.json()["error"]["code"] == "refresh_token_reuse"
     user_headers = {"Authorization": f"Bearer {user_tokens['access_token']}"}
     assert client.get("/v1/auth/me", headers=user_headers).status_code == 403
     assert (
@@ -346,6 +401,85 @@ def test_disabled_user_is_denied_and_event_is_recorded(
         event_count = cursor.fetchone()
         assert event_count is not None
         assert event_count[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_interviewer_lifecycle_blocks_every_session_path_and_delete_is_terminal(
+    client: TestClient, register_user: Any
+) -> None:
+    from app.application.auth_service import AuthService
+    from app.config import get_settings
+    from app.infrastructure.database import session_factory
+
+    interviewer = register_user(role="interviewer")
+    interviewer_id = UUID(interviewer["id"])
+    tokens = login(client, interviewer)
+    happened = datetime.now(UTC)
+    suspended_event = uuid4()
+    async with session_factory() as session:
+        service = AuthService(session, get_settings())
+        assert await service.apply_interviewer_access_event(
+            suspended_event,
+            interviewer_id,
+            "blocked",
+            happened,
+            "Misleading information",
+        )
+        assert not await service.apply_interviewer_access_event(
+            suspended_event,
+            interviewer_id,
+            "blocked",
+            happened,
+            "Misleading information",
+        )
+
+    old_headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    blocked_access = client.get("/v1/auth/me", headers=old_headers)
+    assert blocked_access.status_code == 403
+    assert blocked_access.json()["error"]["code"] == "account_blocked"
+    assert (
+        client.post("/v1/auth/refresh", json={"refresh_token": tokens["refresh_token"]}).status_code
+        == 401
+    )
+    blocked_login = client.post(
+        "/v1/auth/login",
+        json={"email": interviewer["email"], "password": interviewer["password"]},
+    )
+    assert blocked_login.status_code == 403
+    assert blocked_login.json()["error"] == {
+        "code": "account_blocked",
+        "message": "Interviewer account is blocked",
+        "details": {"reason_category": "Misleading information"},
+    }
+
+    async with session_factory() as session:
+        service = AuthService(session, get_settings())
+        assert await service.apply_interviewer_access_event(
+            uuid4(), interviewer_id, "active", happened + timedelta(seconds=1)
+        )
+    assert (
+        client.post(
+            "/v1/auth/login",
+            json={"email": interviewer["email"], "password": interviewer["password"]},
+        ).status_code
+        == 200
+    )
+
+    deleted_at = happened + timedelta(seconds=2)
+    async with session_factory() as session:
+        service = AuthService(session, get_settings())
+        assert await service.apply_interviewer_access_event(
+            uuid4(), interviewer_id, "disabled", deleted_at
+        )
+        assert not await service.apply_interviewer_access_event(
+            uuid4(), interviewer_id, "active", deleted_at + timedelta(seconds=1)
+        )
+    deleted_login = client.post(
+        "/v1/auth/login",
+        json={"email": interviewer["email"], "password": interviewer["password"]},
+    )
+    assert deleted_login.status_code == 403
+    assert deleted_login.json()["error"]["code"] == "account_disabled"
 
 
 def test_non_admin_cannot_disable_user(client: TestClient, register_user: Any) -> None:

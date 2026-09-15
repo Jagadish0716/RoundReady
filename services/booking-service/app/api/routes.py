@@ -220,5 +220,28 @@ async def interviewer_verification_event(
         request.interviewer_id,
         request.event_type == "interviewer.verification.approved.v1",
         request.event_type,
+        request.occurred_at,
     )
     return Response(status_code=204)
+
+
+@router.get("/internal/bookings/{booking_id}/payable", response_model=BookingResponse)
+async def payable_booking(
+    booking_id: UUID,
+    identity: CandidateIdentity,
+    session: DatabaseSession,
+    holds: HoldStore,
+    settings: AppSettings,
+) -> BookingResponse:
+    booking = await service(session, holds, settings).get_candidate_booking(
+        booking_id, identity.user_id
+    )
+    if booking.status is not BookingStatus.PAYMENT_PENDING or booking.starts_at <= datetime.now(
+        UTC
+    ):
+        raise ServiceError(
+            code="booking_not_payable",
+            message="Payment cannot be created for this booking.",
+            status_code=409,
+        )
+    return BookingResponse.model_validate(booking)

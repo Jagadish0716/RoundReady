@@ -6,6 +6,7 @@ import type {
   InterviewerProfileInput,
   InterviewerSkill,
   InterviewerSkillInput,
+  ModerationReasonCategory,
   EvidenceType,
   EvidenceStatus,
   ScreeningStatus,
@@ -45,7 +46,14 @@ export const saveWeeklyRules = (
 ) =>
   request<WeeklyRule[]>(`${own}/availability/weekly`, {
     method: "PUT",
-    body: { rules },
+    body: {
+      rules: rules.map(({ weekday, start_time, end_time, timezone }) => ({
+        weekday,
+        start_time,
+        end_time,
+        timezone,
+      })),
+    },
   });
 export const getBlockouts = (request: AuthenticatedRequest) =>
   request<Blockout[]>(`${own}/availability/blockouts`);
@@ -190,13 +198,18 @@ export const rejectInterviewer = (
 export const suspendInterviewer = (
   request: AuthenticatedRequest,
   interviewerId: string,
-  reason: string,
+  reasonCategory: ModerationReasonCategory,
+  adminNote: string,
 ) =>
   request<InterviewerProfile>(
     `${admin}/interviewers/${interviewerId}/suspend`,
     {
       method: "POST",
-      body: { reason },
+      body: {
+        reason: reasonCategory,
+        reason_category: reasonCategory,
+        admin_note: adminNote.trim() || null,
+      },
     },
   );
 export const reactivateInterviewer = (

@@ -14,6 +14,7 @@ from app.dependencies import (
     AdminIdentity,
     AppSettings,
     AuthenticatedIdentity,
+    BookingContract,
     CandidateIdentity,
     DatabaseSession,
     Provider,
@@ -25,8 +26,10 @@ from roundready_common.errors import ServiceError
 router = APIRouter(prefix="/v1", tags=["payments"])
 
 
-def service(session: DatabaseSession, provider: Provider, settings: AppSettings) -> PaymentService:
-    return PaymentService(session, provider, settings.session_price_paise)
+def service(
+    session: DatabaseSession, provider: Provider, settings: AppSettings, bookings: BookingContract
+) -> PaymentService:
+    return PaymentService(session, provider, settings.session_price_paise, bookings)
 
 
 @router.post("/payments/orders", response_model=PaymentResponse, status_code=201)
@@ -36,9 +39,10 @@ async def create_order(
     session: DatabaseSession,
     provider: Provider,
     settings: AppSettings,
+    bookings: BookingContract,
     idempotency_key: Annotated[str, Header(alias="Idempotency-Key", min_length=8, max_length=128)],
 ) -> PaymentResponse:
-    payment, checkout = await service(session, provider, settings).create_order(
+    payment, checkout = await service(session, provider, settings, bookings).create_order(
         request.booking_id, identity.user_id, idempotency_key
     )
     response = PaymentResponse.model_validate(payment)
@@ -52,8 +56,9 @@ async def get_payment(
     session: DatabaseSession,
     provider: Provider,
     settings: AppSettings,
+    bookings: BookingContract,
 ) -> Payment:
-    return await service(session, provider, settings).get(
+    return await service(session, provider, settings, bookings).get(
         payment_id, identity.user_id, identity.role.value == "admin"
     )
 
@@ -65,6 +70,7 @@ async def complete_development_payment(
     session: DatabaseSession,
     provider: Provider,
     settings: AppSettings,
+    bookings: BookingContract,
 ) -> Payment:
     if (
         settings.environment not in {"development", "test"}
@@ -76,7 +82,7 @@ async def complete_development_payment(
             message="Development payment completion is unavailable",
             status_code=404,
         )
-    return await service(session, provider, settings).complete_development_payment(
+    return await service(session, provider, settings, bookings).complete_development_payment(
         payment_id, identity.user_id
     )
 
@@ -89,8 +95,9 @@ async def refund(
     session: DatabaseSession,
     provider: Provider,
     settings: AppSettings,
+    bookings: BookingContract,
 ) -> RefundResponse:
-    value = await service(session, provider, settings).refund(
+    value = await service(session, provider, settings, bookings).refund(
         payment_id, request.amount_paise, request.reason
     )
     return RefundResponse.model_validate(value)
@@ -102,6 +109,7 @@ async def webhook(
     session: DatabaseSession,
     provider: Provider,
     settings: AppSettings,
+    bookings: BookingContract,
     signature: Annotated[str, Header(alias="X-Razorpay-Signature")],
     event_id: Annotated[str, Header(alias="X-Razorpay-Event-Id", min_length=1, max_length=255)],
 ) -> WebhookResponse:
@@ -121,7 +129,7 @@ async def webhook(
         raise ServiceError(
             code="invalid_webhook_payload", message="Webhook payload is invalid", status_code=400
         ) from exc
-    duplicate, ignored = await service(session, provider, settings).process_webhook(
+    duplicate, ignored = await service(session, provider, settings, bookings).process_webhook(
         event_id, str(payload["event"]), payload
     )
     return WebhookResponse(duplicate=duplicate, ignored=ignored)
