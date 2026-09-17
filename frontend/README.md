@@ -15,6 +15,11 @@ Production builds require an explicit HTTPS gateway URL and must not enable
 `NEXT_PUBLIC_ENABLE_DEVELOPMENT_PAYMENTS`. See the repository
 [production configuration guide](../docs/production-configuration.md).
 
+The candidate checkout creates its Razorpay order through the gateway and loads
+Razorpay Checkout only after the candidate chooses to pay. The browser receives
+the public Razorpay key ID and order metadata from the Payment service; provider
+secrets never belong in frontend environment variables.
+
 Public routes are `/`, `/login`, and `/register`. `/candidate`, `/interviewer`, and `/admin` are protected role placeholders.
 
 ## Authentication design

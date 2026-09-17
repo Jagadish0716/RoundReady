@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { Eye, EyeOff } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -13,6 +14,7 @@ export function PasswordField({
   value,
   error,
   disabled,
+  icon,
   onChange,
 }: {
   id: string;
@@ -20,6 +22,7 @@ export function PasswordField({
   value: string;
   error?: string;
   disabled: boolean;
+  icon?: ReactNode;
   onChange(value: string): void;
 }) {
   const [visible, setVisible] = useState(false);
@@ -27,6 +30,11 @@ export function PasswordField({
     <div className="space-y-2">
       <Label htmlFor={id}>{label}</Label>
       <div className="relative">
+        {icon ? (
+          <span className="pointer-events-none absolute top-1/2 left-4 z-10 -translate-y-1/2 text-slate-400 [&>svg]:h-5 [&>svg]:w-5">
+            {icon}
+          </span>
+        ) : null}
         <Input
           id={id}
           name={id}
@@ -37,7 +45,7 @@ export function PasswordField({
           aria-describedby={error ? `${id}-error` : undefined}
           autoComplete="current-password"
           placeholder="Enter your password"
-          className="h-12 pr-12"
+          className={`h-14 rounded-xl border-slate-200 pr-12 text-base focus-visible:border-blue-500 focus-visible:ring-blue-500/20 ${icon ? "pl-12" : ""}`}
           onChange={(event) => onChange(event.target.value)}
         />
         <Button

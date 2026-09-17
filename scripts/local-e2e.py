@@ -283,6 +283,13 @@ def main() -> None:
         "POST", "/v1/payments/orders", candidate, payment_data, expected=201, key=payment_key
     )
     assert payment["amount_paise"] == 20000 and payment["currency"] == "INR"
+    assert payment["interviewer_earning_paise"] == 15000
+    assert payment["platform_fee_paise"] == 5000
+    repeated_payment = call(
+        "POST", "/v1/payments/orders", candidate, payment_data, expected=201, key=payment_key
+    )
+    assert repeated_payment["id"] == payment["id"]
+    assert repeated_payment["checkout_data"] == payment["checkout_data"]
     complete_path = f"/v1/payments/{payment['id']}/development/complete"
     call("POST", complete_path, candidate)
     call("POST", complete_path, candidate)

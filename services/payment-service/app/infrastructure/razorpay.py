@@ -46,13 +46,18 @@ class RazorpayAdapter:
             order_id,
             provider_amount,
             provider_currency,
-            {
-                "key_id": self._key_id,
-                "order_id": order_id,
-                "amount": amount_paise,
-                "currency": currency,
-            },
+            self.checkout_data(order_id=order_id, amount_paise=amount_paise, currency=currency),
         )
+
+    def checkout_data(
+        self, *, order_id: str, amount_paise: int, currency: str
+    ) -> dict[str, str | int]:
+        return {
+            "key_id": self._key_id,
+            "order_id": order_id,
+            "amount": amount_paise,
+            "currency": currency,
+        }
 
     def verify_webhook(self, body: bytes, signature: str) -> bool:
         expected = hmac.new(self._webhook_secret.encode(), body, hashlib.sha256).hexdigest()

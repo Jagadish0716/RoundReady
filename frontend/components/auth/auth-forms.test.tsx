@@ -125,7 +125,9 @@ describe("authentication forms", () => {
   it("uses the local optional image path and omits unavailable auth features", () => {
     const { container } = render(<LoginForm />);
 
-    expect(container.innerHTML).toContain("/images/auth/candidate-login.jpg");
+    expect(container.innerHTML).toContain("/images/hero/slide1.jpg");
+    expect(container.innerHTML).toContain("/images/hero/slide2.jpg");
+    expect(container.innerHTML).toContain("/images/hero/slide3.jpg");
     expect(
       screen.queryByRole("link", { name: /forgot password/i }),
     ).not.toBeInTheDocument();

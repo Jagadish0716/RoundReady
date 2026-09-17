@@ -26,6 +26,11 @@ class DevelopmentPaymentProvider:
             {"order_id": order_id, "amount": amount_paise, "currency": currency},
         )
 
+    def checkout_data(
+        self, *, order_id: str, amount_paise: int, currency: str
+    ) -> dict[str, str | int]:
+        return {"order_id": order_id, "amount": amount_paise, "currency": currency}
+
     def verify_webhook(self, body: bytes, signature: str) -> bool:
         expected = hmac.new(self._webhook_secret.encode(), body, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected, signature)

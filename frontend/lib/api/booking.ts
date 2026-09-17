@@ -73,6 +73,27 @@ export function completeDevelopmentPayment(
   });
 }
 
+export function getPayment(request: AuthenticatedRequest, paymentId: string) {
+  return request<Payment>(`/v1/payments/${paymentId}`);
+}
+
+export async function pollPayment(
+  request: AuthenticatedRequest,
+  paymentId: string,
+  options: { attempts?: number; delayMs?: number } = {},
+): Promise<Payment> {
+  const attempts = options.attempts ?? 15;
+  const delayMs = options.delayMs ?? 1000;
+  let payment = await getPayment(request, paymentId);
+  for (let attempt = 1; attempt < attempts; attempt += 1) {
+    if (["captured", "failed", "refunded"].includes(payment.status))
+      return payment;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    payment = await getPayment(request, paymentId);
+  }
+  return payment;
+}
+
 export async function pollBooking(
   request: AuthenticatedRequest,
   bookingId: string,

@@ -57,10 +57,13 @@ async def get_payment(
     provider: Provider,
     settings: AppSettings,
     bookings: BookingContract,
-) -> Payment:
-    return await service(session, provider, settings, bookings).get(
+) -> PaymentResponse:
+    payment_service = service(session, provider, settings, bookings)
+    payment = await payment_service.get(
         payment_id, identity.user_id, identity.role.value == "admin"
     )
+    response = PaymentResponse.model_validate(payment)
+    return response.model_copy(update={"checkout_data": payment_service.checkout(payment)})
 
 
 @router.post("/payments/{payment_id}/development/complete", response_model=PaymentResponse)

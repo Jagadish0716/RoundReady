@@ -2,7 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from app.domain.models import PaymentStatus, RefundStatus
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class CreateOrderRequest(BaseModel):
@@ -23,6 +23,16 @@ class PaymentResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     checkout_data: dict[str, str | int] | None = None
+
+    @computed_field
+    @property
+    def interviewer_earning_paise(self) -> int:
+        return 15000
+
+    @computed_field
+    @property
+    def platform_fee_paise(self) -> int:
+        return self.amount_paise - self.interviewer_earning_paise
 
 
 class RefundRequest(BaseModel):

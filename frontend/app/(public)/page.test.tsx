@@ -15,26 +15,30 @@ describe("HomePage", () => {
       screen.getAllByRole("link", { name: "Browse interviewers" })[0],
     ).toHaveAttribute("href", "#interviewers");
     expect(
-      screen.getAllByRole("link", { name: "Become an interviewer" })[0],
-    ).toHaveAttribute("href", "/register?role=interviewer");
-    expect(
-      screen.getByText("Practice interviews with real tech professionals."),
+      screen.getByRole("heading", {
+        name: "Better interview preparation. A brighter you.",
+      }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Explore freely. Sign in when you're ready to book."),
+      screen.getByRole("heading", { name: "₹200 per mock interview" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("One interview. ₹200.")).toHaveLength(2);
-    expect(screen.getAllByText("₹150")).toHaveLength(2);
-    expect(screen.getAllByText("₹50")).toHaveLength(2);
+    expect(screen.getAllByText("₹150")).toHaveLength(1);
+    expect(screen.getAllByText("₹50")).toHaveLength(1);
+    expect(
+      screen.getByRole("region", {
+        name: "Why candidates choose RoundReady",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "How RoundReady works" }),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Why I built RoundReady" }),
     ).toBeInTheDocument();
-    expect(
-      screen.getByAltText("Jagadish, founder of RoundReady"),
-    ).toHaveAttribute(
-      "src",
-      expect.stringContaining("%2Fimages%2Ffounder%2Fjagadish.jpg"),
-    );
+    expect(screen.getByText("Jagadish")).toBeInTheDocument();
+    expect(screen.getAllByText("Founder, RoundReady")).toHaveLength(2);
     expect(document.querySelector("#interviewers")).toBeInTheDocument();
+    expect(document.querySelector("#how-it-works")).toBeInTheDocument();
+    expect(document.querySelector("#why-roundready")).toBeInTheDocument();
   });
 });

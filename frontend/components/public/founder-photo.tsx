@@ -1,25 +1,13 @@
-"use client";
-
-import Image from "next/image";
-import { useState } from "react";
-
 export function FounderPhoto() {
-  const [missing, setMissing] = useState(false);
-
   return (
-    <div className="flex aspect-[4/5] w-full max-w-sm items-center justify-center overflow-hidden rounded-lg border border-neutral-200 bg-neutral-100 text-center">
-      {missing ? (
-        <div className="px-8 text-sm text-neutral-600">Founder photo</div>
-      ) : (
-        <Image
-          src="/images/founder/jagadish.jpg"
-          alt="Jagadish, founder of RoundReady"
-          width={320}
-          height={400}
-          className="h-full w-full object-cover"
-          onError={() => setMissing(true)}
-        />
-      )}
+    <div className="relative flex aspect-[4/5] w-full max-w-sm items-center justify-center overflow-hidden rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-100 via-white to-indigo-100 text-center shadow-[0_25px_60px_-35px_rgba(30,64,175,0.45)]">
+      <div className="px-8">
+        <span className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-blue-600 text-2xl font-bold text-white shadow-lg">
+          JV
+        </span>
+        <p className="mt-4 font-semibold text-slate-800">Jagadish</p>
+        <p className="mt-1 text-sm text-slate-600">Founder, RoundReady</p>
+      </div>
     </div>
   );
 }

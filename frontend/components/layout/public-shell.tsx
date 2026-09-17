@@ -13,22 +13,53 @@ export function PublicShell({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="mx-auto min-h-screen max-w-5xl px-6 py-8">
-      <header className="mb-12 flex items-center justify-between">
-        <Link
-          className="inline-flex items-center rounded-sm focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:outline-none"
-          href="/"
-          aria-label="RoundReady home"
-        >
-          <Logo priority />
-        </Link>
-        <nav className="flex gap-4 text-sm" aria-label="Public navigation">
-          <Link href="/#interviewers">Browse interviewers</Link>
-          <Link href="/login">Login</Link>
-          <Link href="/register">Register</Link>
-        </nav>
+    <div className="min-h-screen overflow-x-clip bg-[#f8faff] text-slate-950">
+      <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-white/95 backdrop-blur-md">
+        <div className="mx-auto flex h-18 max-w-7xl items-center justify-between gap-3 px-4 sm:gap-6 sm:px-6 lg:px-8">
+          <Link
+            className="inline-flex items-center rounded-sm focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:outline-none"
+            href="/"
+            aria-label="RoundReady home"
+          >
+            <Logo priority className="sm:w-[190px]" />
+          </Link>
+          <nav
+            className="flex items-center gap-3 text-sm font-medium text-slate-700 sm:gap-5"
+            aria-label="Public navigation"
+          >
+            <Link
+              className="hidden hover:text-blue-700 md:inline"
+              href="/#interviewers"
+            >
+              Browse interviewers
+            </Link>
+            <Link
+              className="hidden hover:text-blue-700 lg:inline"
+              href="/#how-it-works"
+            >
+              How it works
+            </Link>
+            <Link
+              className="hidden hover:text-blue-700 lg:inline"
+              href="/#why-roundready"
+            >
+              Why RoundReady
+            </Link>
+            <Link className="hover:text-blue-700" href="/login">
+              Login
+            </Link>
+            <Link
+              className="rounded-lg bg-blue-600 px-3 py-2.5 font-semibold whitespace-nowrap text-white shadow-sm hover:bg-blue-700 hover:no-underline sm:px-4"
+              href="/register"
+            >
+              Get started
+            </Link>
+          </nav>
+        </div>
       </header>
-      <main>{children}</main>
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 sm:py-10 lg:px-8">
+        {children}
+      </main>
     </div>
   );
 }

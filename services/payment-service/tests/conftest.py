@@ -50,6 +50,16 @@ class FakeProvider:
             },
         )
 
+    def checkout_data(
+        self, *, order_id: str, amount_paise: int, currency: str
+    ) -> dict[str, str | int]:
+        return {
+            "key_id": "rzp_test_roundready",
+            "order_id": order_id,
+            "amount": amount_paise,
+            "currency": currency,
+        }
+
     async def refund(
         self, *, provider_payment_id: str, amount_paise: int, idempotency_key: str
     ) -> ProviderRefund:

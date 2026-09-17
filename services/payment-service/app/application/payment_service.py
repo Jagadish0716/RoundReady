@@ -48,7 +48,7 @@ class PaymentService:
                     message="Idempotency key was used for another booking",
                     status_code=409,
                 )
-            return existing, None
+            return existing, self._checkout(existing)
         existing_booking = await self.session.scalar(
             select(Payment).where(
                 Payment.booking_id == booking_id,
@@ -59,7 +59,7 @@ class PaymentService:
             )
         )
         if existing_booking:
-            return existing_booking, None
+            return existing_booking, self._checkout(existing_booking)
         await self.bookings.validate(booking_id, candidate_id)
         payment = Payment(
             booking_id=booking_id,
@@ -92,6 +92,21 @@ class PaymentService:
         self._transition(payment, PaymentStatus.PENDING, "provider_order_created", order.order_id)
         await self.session.commit()
         return payment, order.checkout_data
+
+    def checkout(self, payment: Payment) -> dict[str, str | int] | None:
+        return self._checkout(payment)
+
+    def _checkout(self, payment: Payment) -> dict[str, str | int] | None:
+        if payment.provider_order_id is None or payment.status not in {
+            PaymentStatus.PENDING,
+            PaymentStatus.AUTHORIZED,
+        }:
+            return None
+        return self.provider.checkout_data(
+            order_id=payment.provider_order_id,
+            amount_paise=payment.amount_paise,
+            currency=payment.currency,
+        )
 
     async def get(self, payment_id: UUID, user_id: UUID, admin: bool) -> Payment:
         payment = await self.session.get(Payment, payment_id)

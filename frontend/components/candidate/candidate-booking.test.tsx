@@ -11,9 +11,15 @@ import { CandidateBooking } from "@/components/candidate/candidate-booking";
 import { ApiClientError } from "@/lib/api/client";
 import * as bookingApi from "@/lib/api/booking";
 
-const mocks = vi.hoisted(() => ({ request: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  request: vi.fn(),
+  openRazorpayCheckout: vi.fn(),
+}));
 vi.mock("@/components/providers/auth-provider", () => ({
   useAuth: () => ({ request: mocks.request }),
+}));
+vi.mock("@/lib/payments/razorpay", () => ({
+  openRazorpayCheckout: mocks.openRazorpayCheckout,
 }));
 
 const slot = {
@@ -51,6 +57,8 @@ const payment = {
   id: "payment-1",
   booking_id: pending.id,
   amount_paise: 20000,
+  interviewer_earning_paise: 15000,
+  platform_fee_paise: 5000,
   currency: "INR",
   provider: "development",
   provider_order_id: "order_dev_1",
@@ -60,6 +68,16 @@ const payment = {
   updated_at: "2029-01-01T00:00:00Z",
   checkout_data: null,
 };
+const razorpayPayment = {
+  ...payment,
+  provider: "razorpay",
+  checkout_data: {
+    key_id: "rzp_test_roundready",
+    order_id: "order_test_1",
+    amount: 20000,
+    currency: "INR",
+  },
+};
 
 function defaultApi(path: string, options?: { method?: string }): unknown {
   if (path === `/v1/public/slots/${slot.id}`) return slot;
@@ -68,6 +86,7 @@ function defaultApi(path: string, options?: { method?: string }): unknown {
   if (path === "/v1/booking/bookings" && options?.method === "POST")
     return pending;
   if (path === "/v1/payments/orders") return payment;
+  if (path === `/v1/payments/${payment.id}`) return payment;
   if (path.endsWith("/development/complete"))
     return { ...payment, status: "captured" };
   if (path.endsWith(pending.id)) return pending;
@@ -91,6 +110,8 @@ describe("CandidateBooking", () => {
   beforeEach(() => {
     vi.stubEnv("NEXT_PUBLIC_ENABLE_DEVELOPMENT_PAYMENTS", "true");
     vi.clearAllMocks();
+    window.sessionStorage.clear();
+    mocks.openRazorpayCheckout.mockResolvedValue("dismissed");
     mocks.request.mockImplementation((path, options) =>
       Promise.resolve(defaultApi(path, options)),
     );
@@ -205,9 +226,7 @@ describe("CandidateBooking", () => {
   it("creates an authoritative ₹200 pending payment", async () => {
     render(<CandidateBooking />);
     await createPendingBooking();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create ₹200 payment" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₹200 securely" }));
     expect(await screen.findByText(/^pending$/i)).toBeInTheDocument();
     expect(mocks.request).toHaveBeenCalledWith(
       "/v1/payments/orders",
@@ -222,9 +241,7 @@ describe("CandidateBooking", () => {
     });
     render(<CandidateBooking />);
     await createPendingBooking();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create ₹200 payment" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₹200 securely" }));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Complete development payment",
@@ -247,9 +264,7 @@ describe("CandidateBooking", () => {
     });
     render(<CandidateBooking />);
     await createPendingBooking();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create ₹200 payment" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₹200 securely" }));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Complete development payment",
@@ -270,9 +285,7 @@ describe("CandidateBooking", () => {
     });
     render(<CandidateBooking />);
     await createPendingBooking();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create ₹200 payment" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₹200 securely" }));
     fireEvent.click(
       await screen.findByRole("button", {
         name: "Complete development payment",
@@ -319,16 +332,87 @@ describe("CandidateBooking", () => {
     vi.stubEnv("NEXT_PUBLIC_ENABLE_DEVELOPMENT_PAYMENTS", "false");
     render(<CandidateBooking />);
     await createPendingBooking();
-    fireEvent.click(
-      screen.getByRole("button", { name: "Create ₹200 payment" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₹200 securely" }));
     await screen.findByText(/^pending$/i);
     expect(
       screen.queryByRole("button", { name: "Complete development payment" }),
     ).not.toBeInTheDocument();
     expect(
-      screen.getByText(/unavailable in this environment/),
+      screen.getByRole("button", { name: "Pay ₹200 securely" }),
     ).toBeInTheDocument();
+  });
+
+  it("opens Razorpay with backend checkout data and handles dismissal", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://api.roundready.example");
+    vi.stubEnv("NEXT_PUBLIC_ENABLE_DEVELOPMENT_PAYMENTS", "false");
+    mocks.request.mockImplementation((path, options) =>
+      Promise.resolve(
+        path === "/v1/payments/orders"
+          ? razorpayPayment
+          : defaultApi(path, options),
+      ),
+    );
+    render(<CandidateBooking />);
+    await createPendingBooking();
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₹200 securely" }));
+
+    await waitFor(() =>
+      expect(mocks.openRazorpayCheckout).toHaveBeenCalledWith(
+        razorpayPayment.checkout_data,
+      ),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Payment wasn't completed",
+    );
+  });
+
+  it("waits for captured payment and confirmed booking after checkout", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_API_BASE_URL", "https://api.roundready.example");
+    vi.stubEnv("NEXT_PUBLIC_ENABLE_DEVELOPMENT_PAYMENTS", "false");
+    mocks.openRazorpayCheckout.mockResolvedValue("submitted");
+    vi.spyOn(bookingApi, "pollPayment").mockResolvedValue({
+      ...razorpayPayment,
+      status: "captured",
+    });
+    vi.spyOn(bookingApi, "pollBooking").mockResolvedValue({
+      ...pending,
+      status: "confirmed",
+    });
+    mocks.request.mockImplementation((path, options) =>
+      Promise.resolve(
+        path === "/v1/payments/orders"
+          ? razorpayPayment
+          : defaultApi(path, options),
+      ),
+    );
+    render(<CandidateBooking />);
+    await createPendingBooking();
+    fireEvent.click(screen.getByRole("button", { name: "Pay ₹200 securely" }));
+
+    expect(
+      await screen.findByText("Your interview is confirmed."),
+    ).toBeInTheDocument();
+    expect(bookingApi.pollPayment).toHaveBeenCalledWith(
+      expect.any(Function),
+      payment.id,
+    );
+  });
+
+  it("restores an in-progress checkout after refresh", async () => {
+    window.sessionStorage.setItem(
+      "roundready.checkout",
+      JSON.stringify({ bookingId: pending.id, paymentId: payment.id }),
+    );
+    render(<CandidateBooking />);
+    expect(
+      await screen.findByText("Your checkout was restored securely."),
+    ).toBeInTheDocument();
+    expect(mocks.request).toHaveBeenCalledWith(
+      `/v1/booking/bookings/${pending.id}`,
+    );
+    expect(mocks.request).toHaveBeenCalledWith(`/v1/payments/${payment.id}`);
   });
 });
 

@@ -104,8 +104,8 @@ describe("PublicDiscovery", () => {
     expect(screen.getByText("₹200")).toBeInTheDocument();
     expect(screen.getByText("Interview language")).toBeInTheDocument();
     expect(screen.getByText("Next availability")).toBeInTheDocument();
-    expect(screen.getByText("Backend")).toBeInTheDocument();
-    expect(screen.getByText("Python")).toBeInTheDocument();
+    expect(screen.getAllByText("Backend")).toHaveLength(2);
+    expect(screen.getAllByText("Python")).toHaveLength(2);
     expect(screen.getByText("+1 more")).toBeInTheDocument();
     expect(
       screen.queryByText("Distributed systems specialist"),

@@ -65,6 +65,8 @@ def test_health_and_fixed_200_rupee_order(client: TestClient) -> None:
     response = create_payment(client)
     assert response.status_code == 201
     assert response.json()["amount_paise"] == 20000
+    assert response.json()["interviewer_earning_paise"] == 15000
+    assert response.json()["platform_fee_paise"] == 5000
     assert response.json()["currency"] == "INR"
     assert response.json()["status"] == "pending"
     assert "key_secret" not in json.dumps(response.json())
@@ -80,7 +82,7 @@ def test_order_idempotency_and_conflict(client: TestClient) -> None:
         "/v1/payments/orders", json={"booking_id": str(uuid4())}, headers=headers
     )
     assert first.json()["id"] == second.json()["id"]
-    assert second.json()["checkout_data"] is None
+    assert second.json()["checkout_data"] == first.json()["checkout_data"]
     assert conflict.status_code == 409
 
 

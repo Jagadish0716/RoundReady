@@ -50,7 +50,9 @@ Anonymous visitors can browse domains, verified interviewer profiles, safe trust
 
 Access and refresh tokens are held only in React memory. They are not stored in browser storage or cookies. A page reload therefore signs the user out. An authenticated request that receives one 401 attempts one shared refresh-token rotation and one retry; a failed refresh returns the user to login.
 
-Local payments use the development provider. No real payment page is implemented. Interview-room access returns a LiveKit join URL and token, but this frontend displays them as text; it does not embed a LiveKit audio/video client.
+Local Compose payments use the development provider and an explicit completion button. When an environment uses `PAYMENT_PROVIDER=razorpay`, the same checkout opens Razorpay Checkout for provider-supported UPI intent, QR, and payment methods. RoundReady never collects UPI PINs, card numbers, or bank credentials. A successful browser callback starts polling; only the signed webhook, Payment outbox event, and resulting Booking confirmation produce the confirmed UI. The browser stores only the current booking and payment IDs in session storage so an interrupted checkout can be restored; authentication tokens remain memory-only.
+
+The fixed ₹200 policy is displayed as ₹150 interviewer earning and ₹50 platform portion. This is an accounting allocation with payout status pending, not a claim that an automated payout has occurred.
 
 ## 2. Entry point and role access
 

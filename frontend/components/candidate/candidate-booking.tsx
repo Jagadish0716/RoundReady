@@ -1,8 +1,22 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 
 import Link from "next/link";
+import {
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  ShieldCheck,
+  UserRound,
+} from "lucide-react";
 
 import { useAuth } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
@@ -11,6 +25,7 @@ import { Label } from "@/components/ui/label";
 import { ApiClientError } from "@/lib/api/client";
 import * as api from "@/lib/api/booking";
 import { developmentPaymentsEnabled } from "@/lib/config";
+import { openRazorpayCheckout } from "@/lib/payments/razorpay";
 import type {
   Booking,
   InterviewSlot,
@@ -19,6 +34,7 @@ import type {
 } from "@/types/booking";
 
 const SESSION_PRICE_PAISE = 20000;
+const CHECKOUT_SESSION_KEY = "roundready.checkout";
 
 function dateValue(offsetDays: number): string {
   const date = new Date();
@@ -39,6 +55,22 @@ function durationMinutes(slot: InterviewSlot | Booking): number {
     (new Date(slot.ends_at).getTime() - new Date(slot.starts_at).getTime()) /
       60000,
   );
+}
+
+function formatDate(value: string): string {
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(value));
+}
+
+function formatTimeRange(value: InterviewSlot | Booking): string {
+  const formatter = new Intl.DateTimeFormat("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  return `${formatter.format(new Date(value.starts_at))} – ${formatter.format(new Date(value.ends_at))}`;
 }
 
 function messageFor(error: unknown): string {
@@ -74,12 +106,60 @@ export function CandidateBooking({
   const bookingKey = useRef(crypto.randomUUID());
   const paymentKey = useRef(crypto.randomUUID());
   const intentHandled = useRef(false);
+  const restored = useRef(false);
   const development = developmentPaymentsEnabled();
 
   const authoritativePrice = useMemo(() => {
     const source = payment ?? booking;
     return source ? formatMoney(source.amount_paise, source.currency) : "₹200";
   }, [booking, payment]);
+
+  useEffect(() => {
+    if (restored.current) return;
+    restored.current = true;
+    const saved = window.sessionStorage.getItem(CHECKOUT_SESSION_KEY);
+    if (!saved) return;
+    void Promise.resolve().then(async () => {
+      try {
+        const context = JSON.parse(saved) as {
+          bookingId?: string;
+          paymentId?: string;
+        };
+        if (!context.bookingId) return;
+        setBusy("restore");
+        const restoredBooking = await api.getBooking(
+          request,
+          context.bookingId,
+        );
+        setBooking(restoredBooking);
+        if (context.paymentId) {
+          const restoredPayment = await api.getPayment(
+            request,
+            context.paymentId,
+          );
+          setPayment(restoredPayment);
+          if (restoredPayment.status === "captured") {
+            setBooking(await api.pollBooking(request, restoredBooking.id));
+          }
+        }
+        setNotice("Your checkout was restored securely.");
+      } catch {
+        window.sessionStorage.removeItem(CHECKOUT_SESSION_KEY);
+      } finally {
+        setBusy(null);
+      }
+    });
+  }, [request]);
+
+  function rememberCheckout(nextBooking: Booking, nextPayment?: Payment) {
+    window.sessionStorage.setItem(
+      CHECKOUT_SESSION_KEY,
+      JSON.stringify({
+        bookingId: nextBooking.id,
+        paymentId: nextPayment?.id,
+      }),
+    );
+  }
 
   useEffect(() => {
     if (!intentSlotId || !intentInterviewerId || intentHandled.current) return;
@@ -138,6 +218,7 @@ export function CandidateBooking({
       setHold(held);
       setBooking(null);
       setPayment(null);
+      window.sessionStorage.removeItem(CHECKOUT_SESSION_KEY);
     } catch (caught) {
       setError(messageFor(caught));
     } finally {
@@ -164,6 +245,7 @@ export function CandidateBooking({
           "The booking price does not match the ₹200 session price.",
         );
       setBooking(created);
+      rememberCheckout(created);
       setNotice("Booking created. Payment is required to confirm it.");
     } catch (caught) {
       setError(messageFor(caught));
@@ -184,15 +266,99 @@ export function CandidateBooking({
       );
       if (
         created.amount_paise !== booking.amount_paise ||
-        created.currency !== booking.currency
+        created.currency !== booking.currency ||
+        created.interviewer_earning_paise !== 15000 ||
+        created.platform_fee_paise !== 5000
       )
         throw new Error(
           "Payment amount does not match the authoritative booking amount.",
         );
       setPayment(created);
-      setNotice("Payment order created and awaiting completion.");
+      rememberCheckout(booking, created);
+      if (development) {
+        setNotice("Payment order created and awaiting local completion.");
+      } else {
+        await launchCheckout(created);
+      }
     } catch (caught) {
       setError(messageFor(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function reconcilePayment(current: Payment) {
+    if (!booking) return;
+    setNotice("Payment submitted. Waiting for secure confirmation…");
+    const refreshedPayment = ["captured", "failed", "refunded"].includes(
+      current.status,
+    )
+      ? current
+      : await api.pollPayment(request, current.id);
+    setPayment(refreshedPayment);
+    if (refreshedPayment.status === "captured") {
+      const refreshedBooking = await api.pollBooking(request, booking.id);
+      setBooking(refreshedBooking);
+      if (refreshedBooking.status === "confirmed") {
+        setNotice("Payment successful. Your interview is confirmed.");
+      } else if (refreshedBooking.status === "payment_failed") {
+        setError(
+          "Payment failed. The slot has been released; choose another available slot.",
+        );
+      } else {
+        setError(
+          "Payment was received, but booking confirmation is still pending. Check again shortly.",
+        );
+      }
+      return;
+    }
+    if (refreshedPayment.status === "failed") {
+      setError(
+        "Payment wasn't completed. Your booking has not been confirmed.",
+      );
+      return;
+    }
+    setError(
+      "Payment confirmation is taking longer than expected. You can safely check again.",
+    );
+  }
+
+  async function launchCheckout(current: Payment) {
+    if (!booking || busy === "checkout") return;
+    const checkout = current.checkout_data;
+    if (
+      current.provider !== "razorpay" ||
+      !checkout ||
+      typeof checkout.key_id !== "string" ||
+      typeof checkout.order_id !== "string" ||
+      checkout.amount !== SESSION_PRICE_PAISE ||
+      checkout.currency !== "INR"
+    ) {
+      setError(
+        "Secure payment checkout is temporarily unavailable. Please try again.",
+      );
+      return;
+    }
+    setBusy("checkout");
+    setError(null);
+    try {
+      const outcome = await openRazorpayCheckout({
+        key_id: checkout.key_id,
+        order_id: checkout.order_id,
+        amount: checkout.amount,
+        currency: checkout.currency,
+      });
+      if (outcome === "dismissed") {
+        setError(
+          "Payment wasn't completed. Your booking has not been confirmed.",
+        );
+        return;
+      }
+      await reconcilePayment(current);
+    } catch {
+      setError(
+        "Secure payment checkout could not be opened. Please check your connection and try again.",
+      );
     } finally {
       setBusy(null);
     }
@@ -209,18 +375,7 @@ export function CandidateBooking({
         payment.id,
       );
       setPayment(completed);
-      const refreshed = await api.pollBooking(request, booking.id);
-      setBooking(refreshed);
-      if (refreshed.status === "confirmed")
-        setNotice("Your interview is confirmed.");
-      else if (refreshed.status === "payment_failed")
-        setError(
-          "Payment failed. The slot has been released; choose another available slot.",
-        );
-      else
-        setError(
-          "Payment was received, but booking confirmation is still pending. Check again shortly.",
-        );
+      await reconcilePayment(completed);
     } catch (caught) {
       setError(messageFor(caught));
     } finally {
@@ -349,71 +504,214 @@ export function CandidateBooking({
 
       {booking ? (
         <section
-          className="space-y-3 rounded-lg border bg-white p-4"
+          className="overflow-hidden rounded-[1.75rem] border border-blue-100 bg-white shadow-[0_24px_65px_-42px_rgba(30,64,175,0.5)]"
           aria-label="Booking status"
         >
-          <div className="flex justify-between">
-            <h2 className="font-semibold">Booking {booking.id}</h2>
-            <strong className="uppercase">
-              {booking.status.replaceAll("_", " ")}
-            </strong>
+          <div className="border-b border-slate-100 bg-gradient-to-r from-blue-50 to-white px-5 py-5 sm:px-8">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold tracking-wider text-blue-700 uppercase">
+                  Secure checkout
+                </p>
+                <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-950">
+                  {booking.status === "confirmed"
+                    ? "Payment successful"
+                    : "Confirm your interview"}
+                </h2>
+              </div>
+              <span className="rounded-full bg-white px-3 py-1.5 text-xs font-bold text-slate-700 uppercase shadow-sm ring-1 ring-slate-200">
+                {booking.status.replaceAll("_", " ")}
+              </span>
+            </div>
           </div>
-          <p className="text-sm">Interviewer {booking.interviewer_id}</p>
-          <p className="text-sm">
-            {new Date(booking.starts_at).toLocaleString()} ·{" "}
-            {durationMinutes(booking)} minutes · {authoritativePrice}
-          </p>
-          {booking.status === "payment_pending" && !payment ? (
-            <Button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => void startPayment()}
-            >
-              {busy === "payment"
-                ? "Creating payment…"
-                : `Create ${authoritativePrice} payment`}
-            </Button>
-          ) : null}
-          {payment ? (
-            <p className="text-sm">
-              Payment:{" "}
-              <strong className="uppercase">
-                {payment.status.replaceAll("_", " ")}
-              </strong>
-            </p>
-          ) : null}
-          {booking.status === "payment_pending" && payment && development ? (
-            <Button
-              type="button"
-              disabled={busy !== null}
-              onClick={() => void completePayment()}
-            >
-              {busy === "complete"
-                ? "Confirming…"
-                : "Complete development payment"}
-            </Button>
-          ) : null}
-          {booking.status === "payment_pending" && payment && !development ? (
-            <p className="text-sm text-neutral-600">
-              Development payment completion is unavailable in this environment.
-            </p>
-          ) : null}
-          {booking.status === "confirmed" ? (
-            <p className="text-sm text-green-700">
-              Your slot is confirmed. Interview access will be available closer
-              to the scheduled time.{" "}
-              <Link className="underline" href="/candidate/interviews">
-                Open interview sessions
-              </Link>
-            </p>
-          ) : null}
-          {booking.status === "payment_failed" ? (
-            <p className="text-sm text-red-700">
-              Payment failed. Search again to choose an available slot.
-            </p>
-          ) : null}
+          <div className="grid gap-7 p-5 sm:p-8 md:grid-cols-[1fr_0.9fr]">
+            <div className="space-y-5">
+              <div className="flex items-start gap-3">
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
+                  <UserRound className="h-5 w-5" aria-hidden />
+                </span>
+                <div>
+                  <p className="text-xs font-medium text-slate-500">
+                    Interviewer
+                  </p>
+                  <p className="font-semibold text-slate-950">
+                    Verified RoundReady professional
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {selected
+                      ? `${selected.domain} • ${selected.topic}`
+                      : `Reference ${booking.interviewer_id.slice(0, 8)}`}
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-1 lg:grid-cols-2">
+                <CheckoutDetail
+                  icon={<CalendarDays aria-hidden />}
+                  label="Date"
+                  value={formatDate(booking.starts_at)}
+                />
+                <CheckoutDetail
+                  icon={<Clock3 aria-hidden />}
+                  label="Time"
+                  value={formatTimeRange(booking)}
+                />
+              </div>
+              <div className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-600">
+                <div className="flex justify-between gap-4">
+                  <span>Interview fee</span>
+                  <strong className="text-slate-950">
+                    {authoritativePrice}
+                  </strong>
+                </div>
+                <p className="mt-3">
+                  {payment
+                    ? formatMoney(
+                        payment.interviewer_earning_paise,
+                        payment.currency,
+                      )
+                    : "₹150"}{" "}
+                  is the interviewer earning
+                </p>
+                <p className="mt-1">
+                  {payment
+                    ? formatMoney(payment.platform_fee_paise, payment.currency)
+                    : "₹50"}{" "}
+                  helps run RoundReady
+                </p>
+                <p className="mt-3 text-xs">
+                  Interviewer payout status: pending
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col rounded-2xl border border-blue-100 bg-blue-50/60 p-5">
+              {booking.status === "confirmed" ? (
+                <>
+                  <CheckCircle2
+                    className="h-10 w-10 text-emerald-600"
+                    aria-hidden
+                  />
+                  <h3 className="mt-4 text-xl font-bold text-slate-950">
+                    Your interview is confirmed.
+                  </h3>
+                  <dl className="mt-5 space-y-3 text-sm">
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-600">Amount paid</dt>
+                      <dd className="font-bold">{authoritativePrice}</dd>
+                    </div>
+                    <div className="flex justify-between gap-4">
+                      <dt className="text-slate-600">Duration</dt>
+                      <dd className="font-semibold">
+                        {durationMinutes(booking)} minutes
+                      </dd>
+                    </div>
+                  </dl>
+                  <Button
+                    asChild
+                    className="mt-6 h-12 rounded-xl bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Link href="/candidate/bookings">View my booking</Link>
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between gap-4 border-b border-blue-100 pb-4">
+                    <span className="font-semibold text-slate-700">Total</span>
+                    <strong className="text-3xl text-slate-950">
+                      {authoritativePrice}
+                    </strong>
+                  </div>
+                  {payment ? (
+                    <p className="mt-4 text-sm text-slate-600">
+                      Payment status:{" "}
+                      <strong className="text-slate-900 uppercase">
+                        {payment.status.replaceAll("_", " ")}
+                      </strong>
+                    </p>
+                  ) : null}
+                  {booking.status === "payment_pending" && !payment ? (
+                    <Button
+                      type="button"
+                      className="mt-5 h-13 rounded-xl bg-blue-600 text-base hover:bg-blue-700"
+                      disabled={busy !== null}
+                      onClick={() => void startPayment()}
+                    >
+                      {busy === "payment"
+                        ? "Preparing secure checkout…"
+                        : `Pay ${authoritativePrice} securely`}
+                    </Button>
+                  ) : null}
+                  {booking.status === "payment_pending" &&
+                  payment &&
+                  development ? (
+                    <Button
+                      type="button"
+                      className="mt-5 h-13 rounded-xl bg-blue-600 text-base hover:bg-blue-700"
+                      disabled={busy !== null}
+                      onClick={() => void completePayment()}
+                    >
+                      {busy === "complete"
+                        ? "Confirming…"
+                        : "Complete development payment"}
+                    </Button>
+                  ) : null}
+                  {booking.status === "payment_pending" &&
+                  payment &&
+                  !development ? (
+                    <Button
+                      type="button"
+                      className="mt-5 h-13 rounded-xl bg-blue-600 text-base hover:bg-blue-700"
+                      disabled={busy !== null}
+                      onClick={() => void launchCheckout(payment)}
+                    >
+                      {busy === "checkout"
+                        ? "Opening Razorpay…"
+                        : `Pay ${authoritativePrice} securely`}
+                    </Button>
+                  ) : null}
+                  {booking.status === "payment_failed" ? (
+                    <Button asChild className="mt-5 h-12 rounded-xl">
+                      <Link href="/candidate">Choose another slot</Link>
+                    </Button>
+                  ) : null}
+                  <div className="mt-auto pt-5 text-center">
+                    <p className="inline-flex items-center gap-2 text-xs font-medium text-slate-600">
+                      <ShieldCheck className="h-4 w-4" aria-hidden />
+                      Secure payment powered by Razorpay
+                    </p>
+                    <p className="mt-2 text-xs text-slate-500">
+                      UPI, QR and available payment options are handled securely
+                      by Razorpay.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         </section>
       ) : null}
     </section>
+  );
+}
+
+function CheckoutDetail({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="mt-0.5 text-blue-700 [&>svg]:h-5 [&>svg]:w-5">
+        {icon}
+      </span>
+      <div>
+        <p className="text-xs font-medium text-slate-500">{label}</p>
+        <p className="mt-0.5 text-sm font-semibold text-slate-950">{value}</p>
+      </div>
+    </div>
   );
 }

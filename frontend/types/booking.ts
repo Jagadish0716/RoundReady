@@ -65,6 +65,8 @@ export interface Payment {
   id: string;
   booking_id: string;
   amount_paise: number;
+  interviewer_earning_paise: number;
+  platform_fee_paise: number;
   currency: string;
   provider: string;
   provider_order_id: string | null;

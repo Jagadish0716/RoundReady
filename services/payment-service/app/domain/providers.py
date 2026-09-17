@@ -22,6 +22,9 @@ class PaymentProvider(Protocol):
     async def create_order(
         self, *, amount_paise: int, currency: str, idempotency_key: str
     ) -> ProviderOrder: ...
+    def checkout_data(
+        self, *, order_id: str, amount_paise: int, currency: str
+    ) -> dict[str, str | int]: ...
     def verify_webhook(self, body: bytes, signature: str) -> bool: ...
     async def refund(
         self, *, provider_payment_id: str, amount_paise: int, idempotency_key: str
