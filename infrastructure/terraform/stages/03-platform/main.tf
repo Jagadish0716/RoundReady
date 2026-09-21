@@ -88,7 +88,14 @@ resource "aws_security_group" "k3s" {
   name        = "${local.name_prefix}-k3s"
   description = "Private K3s node communication"
   vpc_id      = data.terraform_remote_state.network.outputs.vpc_id
-  tags        = merge(local.tags, { Name = "${local.name_prefix}-k3s" })
+  egress {
+    description = "Allow outbound package, SSM, and cluster traffic"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+  tags = merge(local.tags, { Name = "${local.name_prefix}-k3s" })
 }
 resource "aws_vpc_security_group_ingress_rule" "k3s_api" {
   security_group_id            = aws_security_group.k3s.id
