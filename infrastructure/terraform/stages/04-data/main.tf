@@ -126,7 +126,7 @@ module "rds" {
   name_prefix                   = local.name_prefix
   vpc_id                        = data.terraform_remote_state.network.outputs.vpc_id
   private_data_subnet_ids       = data.terraform_remote_state.network.outputs.private_data_subnet_ids
-  application_security_group_id = data.terraform_remote_state.platform.outputs.cluster_security_group_id
+  application_security_group_id = data.terraform_remote_state.platform.outputs.k3s_node_security_group_id
   production_mode               = var.environment == "production"
   instance_class                = var.rds_instance_class
   allocated_storage             = var.rds_allocated_storage
@@ -145,7 +145,7 @@ module "redis" {
   name_prefix                   = local.name_prefix
   vpc_id                        = data.terraform_remote_state.network.outputs.vpc_id
   private_data_subnet_ids       = data.terraform_remote_state.network.outputs.private_data_subnet_ids
-  application_security_group_id = data.terraform_remote_state.platform.outputs.cluster_security_group_id
+  application_security_group_id = data.terraform_remote_state.platform.outputs.k3s_node_security_group_id
   production_mode               = var.environment == "production"
   node_type                     = var.redis_node_type
   replica_count                 = var.redis_replica_count
@@ -161,7 +161,7 @@ module "rabbitmq" {
   name_prefix                   = local.name_prefix
   vpc_id                        = data.terraform_remote_state.network.outputs.vpc_id
   private_data_subnet_ids       = data.terraform_remote_state.network.outputs.private_data_subnet_ids
-  application_security_group_id = data.terraform_remote_state.platform.outputs.cluster_security_group_id
+  application_security_group_id = data.terraform_remote_state.platform.outputs.k3s_node_security_group_id
   production_mode               = var.environment == "production"
   instance_type                 = var.rabbitmq_instance_type
   deployment_mode               = var.rabbitmq_deployment_mode

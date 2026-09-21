@@ -15,20 +15,20 @@ single dev NAT Gateway, and EIP. Verify with `aws ec2 describe-vpcs` and
 The existing root remains the authoritative complete composition while stages
 2–7 are migrated; do not use repeated `-target` applies as a deployment model.
 
-Stage 03 owns EKS, the EKS encryption key, workload IAM roles, and Pod Identity
-associations. Its IAM policies use the exact per-service secret mapping from
-the original root. Stage 04 owns RDS, Valkey, RabbitMQ, and their consumer KMS
-keys. Stage 05 owns application secret containers and CloudWatch logging.
-Stage 06 reads `cluster_name` from Stage 03 remote state and owns optional
-load-balancer-controller IAM plus ACM/Route53 resources. KMS remains owned by
-the EKS/RDS/Valkey consuming modules rather than Stage 02.
+Stage 03 owns two private EC2 instances running K3s, their node security group,
+instance profile, SSM bootstrap permissions, and encrypted root volumes. Stage
+04 owns RDS, Valkey, RabbitMQ, and their consumer KMS keys. Stage 05 owns
+application secret containers and CloudWatch logging. Stage 06 is optional
+DNS/ACM preparation; Kubernetes ingress is not provisioned by Terraform for
+the K3s dev platform. KMS remains owned by the consuming data modules rather
+than Stage 02.
 
 Remote-state dependencies:
 
 ```text
 03-platform  <- 01-network
 04-data      <- 01-network, 03-platform
-06-ingress   <- 03-platform
+06-ingress   (optional, no platform dependency)
 ```
 
 Use the shared bucket `roundready-terraform-state-jagadish` with state keys

@@ -5,132 +5,184 @@ terraform {
   }
   backend "s3" { use_lockfile = true }
 }
-variable "aws_region" {
-  type = string
-}
-variable "environment" {
-  type = string
-}
-variable "project_name" {
-  type = string
-}
-variable "state_bucket" {
-  type = string
-}
-variable "state_region" {
-  type = string
-}
-variable "network_state_key" {
-  type = string
-}
-variable "kubernetes_version" {
-  type = string
-}
-variable "node_instance_types" {
-  type = list(string)
-}
-variable "node_min_size" {
-  type = number
-}
-variable "node_desired_size" {
-  type = number
-}
-variable "node_max_size" {
-  type = number
-}
-variable "node_disk_size" {
-  type = number
-}
-variable "enable_public_eks_endpoint" {
-  type = bool
-}
-variable "eks_public_access_cidrs" {
-  type = list(string)
-}
-variable "enable_eks_control_plane_logs" {
-  type = bool
-}
-variable "eks_admin_principal_arns" {
-  type = list(string)
-}
-variable "common_tags" {
-  type = map(string)
-}
-variable "application_namespace" {
-  type    = string
-  default = "roundready"
-}
-variable "create_pod_identity_associations" {
-  type    = bool
-  default = true
-}
-data "aws_caller_identity" "current" {}
+variable "aws_region" { type = string }
+variable "environment" { type = string }
+variable "project_name" { type = string }
+variable "state_bucket" { type = string }
+variable "state_region" { type = string }
+variable "network_state_key" { type = string }
+variable "k3s_instance_type" { type = string }
+variable "k3s_root_volume_size" { type = number }
+variable "k3s_ami_ssm_parameter" { type = string }
+variable "ec2_key_name" { type = string }
+variable "common_tags" { type = map(string) }
 data "terraform_remote_state" "network" {
   backend = "s3"
-  config = { bucket = var.state_bucket, key = var.network_state_key, region = var.state_region
-  }
+  config  = { bucket = var.state_bucket, key = var.network_state_key, region = var.state_region }
 }
+data "aws_ssm_parameter" "ubuntu_ami" { name = var.k3s_ami_ssm_parameter }
+data "aws_caller_identity" "current" {}
 locals {
-  name_prefix = "${var.project_name}-${var.environment}"
-  tags = merge({ Project = "RoundReady", Environment = var.environment, ManagedBy = "Terraform"
-  }, var.common_tags)
-  secret_arn = { for key in ["auth-database", "user-database", "interviewer-database", "booking-database", "payment-database", "interview-database", "notification-database", "jwt-signing", "jwt-verification", "internal-identity", "internal-service", "razorpay", "livekit", "resend", "meta-whatsapp"] : key => "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}-${key}-*" }
-  service_secret_arns = {
-    api-gateway          = [local.secret_arn["jwt-verification"], local.secret_arn["internal-identity"], "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}/redis/credentials-*"]
-    auth-service         = [local.secret_arn["auth-database"], local.secret_arn["jwt-signing"], local.secret_arn["jwt-verification"], local.secret_arn["internal-identity"], "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}/rabbitmq/credentials-*"]
-    user-service         = [local.secret_arn["user-database"], local.secret_arn["internal-identity"], local.secret_arn["internal-service"]]
-    interviewer-service  = [local.secret_arn["interviewer-database"], local.secret_arn["internal-identity"], "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}/rabbitmq/credentials-*"]
-    booking-service      = [local.secret_arn["booking-database"], local.secret_arn["internal-identity"], "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}/redis/credentials-*", "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}/rabbitmq/credentials-*"]
-    payment-service      = [local.secret_arn["payment-database"], local.secret_arn["internal-identity"], local.secret_arn["razorpay"], "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}/rabbitmq/credentials-*"]
-    interview-service    = [local.secret_arn["interview-database"], local.secret_arn["internal-identity"], local.secret_arn["livekit"], "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}/rabbitmq/credentials-*"]
-    notification-service = [local.secret_arn["notification-database"], local.secret_arn["internal-identity"], local.secret_arn["internal-service"], local.secret_arn["resend"], local.secret_arn["meta-whatsapp"], "arn:aws:secretsmanager:${var.aws_region}:${data.aws_caller_identity.current.account_id}:secret:${local.name_prefix}/rabbitmq/credentials-*"]
-  }
+  name_prefix      = "${var.project_name}-${var.environment}"
+  tags             = merge({ Project = "RoundReady", Environment = var.environment, ManagedBy = "Terraform" }, var.common_tags)
+  server_ip        = cidrhost("10.10.16.0/21", 10)
+  server_user_data = <<-EOT
+    #!/bin/bash
+    set -Eeuo pipefail
+    apt-get update -y
+    apt-get install -y curl awscli openssl snapd
+    if ! systemctl is-active --quiet snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null && ! systemctl is-active --quiet amazon-ssm-agent 2>/dev/null; then
+      snap install amazon-ssm-agent --classic || true
+      systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null || systemctl enable --now amazon-ssm-agent
+    fi
+    TOKEN="$(openssl rand -hex 32)"
+    export K3S_TOKEN="$TOKEN"
+    curl -sfL https://get.k3s.io | sh -s - server --write-kubeconfig-mode 644
+    aws ssm put-parameter \
+      --region ${var.aws_region} \
+      --name /${local.name_prefix}/k3s/join-token \
+      --type SecureString \
+      --value "$TOKEN" \
+      --overwrite
+    unset K3S_TOKEN TOKEN
+  EOT
+  worker_user_data = <<-EOT
+    #!/bin/bash
+    set -Eeuo pipefail
+    apt-get update -y
+    apt-get install -y curl awscli snapd
+    if ! systemctl is-active --quiet snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null && ! systemctl is-active --quiet amazon-ssm-agent 2>/dev/null; then
+      snap install amazon-ssm-agent --classic || true
+      systemctl enable --now snap.amazon-ssm-agent.amazon-ssm-agent.service 2>/dev/null || systemctl enable --now amazon-ssm-agent
+    fi
+    deadline=$$(($${SECONDS} + 900))
+    TOKEN=""
+    until [ "$${SECONDS}" -ge "$deadline" ]; do
+      TOKEN="$(aws ssm get-parameter \
+        --region ${var.aws_region} \
+        --name /${local.name_prefix}/k3s/join-token \
+        --with-decryption \
+        --query Parameter.Value \
+        --output text 2>/dev/null || true)"
+      if [ -n "$TOKEN" ] && timeout 5 bash -c '</dev/tcp/${local.server_ip}/6443' 2>/dev/null; then
+        break
+      fi
+      TOKEN=""
+      sleep 10
+    done
+    if [ -z "$TOKEN" ]; then
+      echo "Timed out waiting for the K3s server token and API" >&2
+      exit 1
+    fi
+    export K3S_URL=https://${local.server_ip}:6443
+    export K3S_TOKEN="$TOKEN"
+    curl -sfL https://get.k3s.io | sh -
+    unset K3S_URL K3S_TOKEN TOKEN
+  EOT
 }
 provider "aws" {
   region = var.aws_region
-  default_tags {
-    tags = local.tags
+  default_tags { tags = local.tags }
+}
+resource "aws_security_group" "k3s" {
+  name        = "${local.name_prefix}-k3s"
+  description = "Private K3s node communication"
+  vpc_id      = data.terraform_remote_state.network.outputs.vpc_id
+  tags        = merge(local.tags, { Name = "${local.name_prefix}-k3s" })
+}
+resource "aws_vpc_security_group_ingress_rule" "k3s_api" {
+  security_group_id            = aws_security_group.k3s.id
+  referenced_security_group_id = aws_security_group.k3s.id
+  ip_protocol                  = "tcp"
+  from_port                    = 6443
+  to_port                      = 6443
+}
+resource "aws_vpc_security_group_ingress_rule" "flannel" {
+  security_group_id            = aws_security_group.k3s.id
+  referenced_security_group_id = aws_security_group.k3s.id
+  ip_protocol                  = "udp"
+  from_port                    = 8472
+  to_port                      = 8472
+}
+resource "aws_vpc_security_group_ingress_rule" "kubelet" {
+  security_group_id            = aws_security_group.k3s.id
+  referenced_security_group_id = aws_security_group.k3s.id
+  ip_protocol                  = "tcp"
+  from_port                    = 10250
+  to_port                      = 10250
+}
+resource "aws_iam_role" "server" {
+  name               = "${local.name_prefix}-k3s-server"
+  assume_role_policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Principal = { Service = "ec2.amazonaws.com" }, Action = "sts:AssumeRole" }] })
+  tags               = local.tags
+}
+resource "aws_iam_role" "worker" {
+  name               = "${local.name_prefix}-k3s-worker"
+  assume_role_policy = aws_iam_role.server.assume_role_policy
+  tags               = local.tags
+}
+resource "aws_iam_role_policy_attachment" "server_ssm" {
+  role       = aws_iam_role.server.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+resource "aws_iam_role_policy_attachment" "worker_ssm" {
+  role       = aws_iam_role.worker.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+}
+resource "aws_iam_instance_profile" "server" {
+  name = "${local.name_prefix}-k3s-server"
+  role = aws_iam_role.server.name
+}
+resource "aws_iam_instance_profile" "worker" {
+  name = "${local.name_prefix}-k3s-worker"
+  role = aws_iam_role.worker.name
+}
+resource "aws_iam_role_policy" "server_bootstrap" {
+  role   = aws_iam_role.server.id
+  name   = "${local.name_prefix}-k3s-server-bootstrap"
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["ssm:GetParameter", "ssm:PutParameter"], Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${local.name_prefix}/k3s/join-token" }, { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" }, { Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"], Resource = "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${local.name_prefix}/*" }] })
+}
+resource "aws_iam_role_policy" "worker_bootstrap" {
+  role   = aws_iam_role.worker.id
+  name   = "${local.name_prefix}-k3s-worker-bootstrap"
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["ssm:GetParameter"], Resource = "arn:aws:ssm:${var.aws_region}:${data.aws_caller_identity.current.account_id}:parameter/${local.name_prefix}/k3s/join-token" }, { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" }, { Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"], Resource = "arn:aws:ecr:${var.aws_region}:${data.aws_caller_identity.current.account_id}:repository/${local.name_prefix}/*" }] })
+}
+resource "aws_instance" "server" {
+  ami                         = data.aws_ssm_parameter.ubuntu_ami.value
+  instance_type               = var.k3s_instance_type
+  key_name                    = var.ec2_key_name
+  subnet_id                   = data.terraform_remote_state.network.outputs.private_app_subnet_ids[0]
+  private_ip                  = local.server_ip
+  associate_public_ip_address = false
+  vpc_security_group_ids      = [aws_security_group.k3s.id]
+  iam_instance_profile        = aws_iam_instance_profile.server.name
+  user_data                   = local.server_user_data
+  root_block_device {
+    encrypted   = true
+    volume_size = var.k3s_root_volume_size
+    volume_type = "gp3"
   }
+  tags = merge(local.tags, { Name = "${local.name_prefix}-k3s-server", Role = "server" })
 }
-module "eks" {
-  source                    = "../../modules/eks"
-  name_prefix               = local.name_prefix
-  kubernetes_version        = var.kubernetes_version
-  vpc_id                    = data.terraform_remote_state.network.outputs.vpc_id
-  private_app_subnet_ids    = data.terraform_remote_state.network.outputs.private_app_subnet_ids
-  node_instance_types       = var.node_instance_types
-  node_min_size             = var.node_min_size
-  node_desired_size         = var.node_desired_size
-  node_max_size             = var.node_max_size
-  node_disk_size            = var.node_disk_size
-  enable_public_endpoint    = var.enable_public_eks_endpoint
-  public_access_cidrs       = var.eks_public_access_cidrs
-  enable_control_plane_logs = var.enable_eks_control_plane_logs
-  admin_principal_arns      = var.eks_admin_principal_arns
-  common_tags               = local.tags
+resource "aws_instance" "worker" {
+  ami                         = data.aws_ssm_parameter.ubuntu_ami.value
+  instance_type               = var.k3s_instance_type
+  key_name                    = var.ec2_key_name
+  subnet_id                   = data.terraform_remote_state.network.outputs.private_app_subnet_ids[1]
+  associate_public_ip_address = false
+  vpc_security_group_ids      = [aws_security_group.k3s.id]
+  iam_instance_profile        = aws_iam_instance_profile.worker.name
+  user_data                   = local.worker_user_data
+  root_block_device {
+    encrypted   = true
+    volume_size = var.k3s_root_volume_size
+    volume_type = "gp3"
+  }
+  tags       = merge(local.tags, { Name = "${local.name_prefix}-k3s-worker", Role = "worker" })
+  depends_on = [aws_instance.server]
 }
-module "iam" {
-  source                           = "../../modules/iam"
-  name_prefix                      = local.name_prefix
-  cluster_name                     = module.eks.cluster_name
-  cluster_arn                      = module.eks.cluster_arn
-  namespace                        = var.application_namespace
-  service_secret_arns              = local.service_secret_arns
-  create_pod_identity_associations = var.create_pod_identity_associations
-  common_tags                      = local.tags
-}
-output "cluster_name" {
-  value = module.eks.cluster_name
-}
-output "cluster_arn" {
-  value = module.eks.cluster_arn
-}
-output "cluster_security_group_id" {
-  value = module.eks.cluster_security_group_id
-}
-output "workload_iam_role_arns" {
-  value = module.iam.workload_role_arns
-}
-output "pod_identity_association_arns" {
-  value = module.iam.pod_identity_association_arns
-}
+output "k3s_server_instance_id" { value = aws_instance.server.id }
+output "k3s_worker_instance_id" { value = aws_instance.worker.id }
+output "k3s_server_private_ip" { value = aws_instance.server.private_ip }
+output "k3s_worker_private_ip" { value = aws_instance.worker.private_ip }
+output "k3s_node_security_group_id" { value = aws_security_group.k3s.id }

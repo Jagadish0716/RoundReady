@@ -14,15 +14,6 @@ variable "environment" {
 variable "project_name" {
   type = string
 }
-variable "state_bucket" { type = string }
-variable "state_region" { type = string }
-variable "platform_state_key" { type = string }
-variable "enabled" {
-  type = bool
-}
-variable "controller_version" {
-  type = string
-}
 variable "public_ingress_enabled" {
   type = bool
 }
@@ -53,14 +44,6 @@ variable "public_alb_zone_id" {
 variable "common_tags" {
   type = map(string)
 }
-data "terraform_remote_state" "platform" {
-  backend = "s3"
-  config = {
-    bucket = var.state_bucket
-    key    = var.platform_state_key
-    region = var.state_region
-  }
-}
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
   tags = merge({ Project = "RoundReady", Environment = var.environment, ManagedBy = "Terraform"
@@ -71,14 +54,6 @@ provider "aws" {
   default_tags {
     tags = local.tags
   }
-}
-module "alb" {
-  source             = "../../modules/alb"
-  enabled            = var.enabled
-  name_prefix        = local.name_prefix
-  cluster_name       = data.terraform_remote_state.platform.outputs.cluster_name
-  controller_version = var.controller_version
-  common_tags        = local.tags
 }
 module "dns" {
   source           = "../../modules/dns"
@@ -91,9 +66,6 @@ module "dns" {
   alb_dns_name     = var.public_alb_dns_name
   alb_zone_id      = var.public_alb_zone_id
   common_tags      = local.tags
-}
-output "controller_role_arn" {
-  value = module.alb.controller_iam_role_arn
 }
 output "certificate_arn" {
   value = module.dns.certificate_arn
