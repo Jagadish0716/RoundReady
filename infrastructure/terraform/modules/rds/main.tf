@@ -20,7 +20,7 @@ resource "aws_security_group" "this" {
 resource "aws_vpc_security_group_ingress_rule" "application" {
   security_group_id            = aws_security_group.this.id
   referenced_security_group_id = var.application_security_group_id
-  description                  = "PostgreSQL from EKS application security boundary"
+  description                  = "PostgreSQL from the private K3s node security boundary"
   from_port                    = 5432
   to_port                      = 5432
   ip_protocol                  = "tcp"

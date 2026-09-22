@@ -20,7 +20,7 @@ resource "aws_security_group" "this" {
 resource "aws_vpc_security_group_ingress_rule" "application" {
   security_group_id            = aws_security_group.this.id
   referenced_security_group_id = var.application_security_group_id
-  description                  = "TLS Redis protocol from EKS application security boundary"
+  description                  = "TLS Valkey protocol from the private K3s node security boundary"
   from_port                    = 6379
   to_port                      = 6379
   ip_protocol                  = "tcp"

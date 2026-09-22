@@ -72,6 +72,6 @@ metadata:
     app.kubernetes.io/part-of: roundready
     app.kubernetes.io/managed-by: kustomize
 spec:
-  type: ClusterIP
+  type: NodePort
   selector: {app.kubernetes.io/name: frontend}
-  ports: [{name: http, port: 3000, targetPort: http, protocol: TCP}]
+  ports: [{name: http, port: 3000, targetPort: 3000, nodePort: 30080, protocol: TCP}]

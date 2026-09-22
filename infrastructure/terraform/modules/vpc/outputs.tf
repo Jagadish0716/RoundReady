@@ -14,7 +14,7 @@ output "public_subnet_ids" {
 }
 
 output "private_app_subnet_ids" {
-  description = "Private application subnet IDs for future EKS workloads."
+  description = "Private application subnet IDs used by the K3s server and worker."
   value       = [for az in local.azs : aws_subnet.private_app[az].id]
 }
 

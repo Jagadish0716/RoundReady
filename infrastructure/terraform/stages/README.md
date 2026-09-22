@@ -1,35 +1,13 @@
-# Staged AWS deployment
+# Historical staged Terraform implementations
 
-`01-network` is the first independent root and owns only the VPC module. Its
-remote-state outputs are the contract for later platform and data roots.
+The numbered roots in this directory document the earlier staged deployment
+approach. They are not required for RoundReady DEV deployment and do not share
+the authoritative unified state.
 
-```bash
-terraform -chdir=infrastructure/terraform/stages/01-network init -backend-config="bucket=$TF_STATE_BUCKET" -backend-config="key=roundready/dev/01-network.tfstate" -backend-config="region=ap-south-1" -backend-config="encrypt=true"
-terraform -chdir=infrastructure/terraform/stages/01-network plan -var-file=../../environments/dev/terraform.tfvars
-```
+Use [`../README.md`](../README.md) and the single root at
+`infrastructure/terraform/` for DEV plan/apply/destroy operations. Do not apply
+these stage roots alongside the unified root: that would create duplicate
+Terraform ownership for the same environment resources.
 
-It creates the VPC, public/private subnets, route tables, Internet Gateway,
-single dev NAT Gateway, and EIP. Verify with `aws ec2 describe-vpcs` and
-`describe-subnets`. The NAT Gateway and EIP introduce continuous cost.
-
-The existing root remains the authoritative complete composition while stages
-2–7 are migrated; do not use repeated `-target` applies as a deployment model.
-
-Stage 03 owns two private EC2 instances running K3s, their node security group,
-instance profile, SSM bootstrap permissions, and encrypted root volumes. Stage
-04 owns RDS, Valkey, RabbitMQ, and their consumer KMS keys. Stage 05 owns
-application secret containers and CloudWatch logging. Stage 06 is optional
-DNS/ACM preparation; Kubernetes ingress is not provisioned by Terraform for
-the K3s dev platform. KMS remains owned by the consuming data modules rather
-than Stage 02.
-
-Remote-state dependencies:
-
-```text
-03-platform  <- 01-network
-04-data      <- 01-network, 03-platform
-06-ingress   (optional, no platform dependency)
-```
-
-Use the shared bucket `roundready-terraform-state-jagadish` with state keys
-`dev/01-network/terraform.tfstate` through `dev/06-ingress/terraform.tfstate`.
+The stage roots retain `terraform_remote_state` references for historical
+reference only. The unified root uses direct module outputs and inputs.

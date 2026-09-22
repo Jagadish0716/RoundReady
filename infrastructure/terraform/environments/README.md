@@ -1,20 +1,10 @@
-# Environment states
+# Terraform environment inputs
 
-`dev`, `staging`, and `production` use the shared foundation in the parent Terraform root and
-must each use an independent S3 state key. Copy the matching `terraform.tfvars.example` to a
-local, ignored `.tfvars` file and set production's region explicitly.
+`dev/terraform.tfvars` configures the authoritative unified DEV root in the
+parent `infrastructure/terraform/` directory. That root owns the complete DEV
+infrastructure and uses its own S3 state key (`dev/unified/terraform.tfstate`).
 
-The environment directories intentionally contain inputs only at this stage; AWS resources are
-not provisioned by this foundation. Future environment roots may call the reviewed modules
-once their sizing and security interfaces are approved.
-
-Example initialization (the bucket is bootstrapped separately; native S3 lockfiles are enabled
-by the shared backend configuration):
-
-```bash
-terraform -chdir=infrastructure/terraform init \
-  -backend-config="bucket=$TF_STATE_BUCKET" \
-  -backend-config="key=roundready/production/terraform.tfstate" \
-  -backend-config="region=$AWS_REGION" \
-  -backend-config="encrypt=true"
-```
+The staging and production example files are retained as planning references;
+this K3s conversion currently defines and validates the DEV configuration only.
+Do not use those examples to deploy until their sizing, key-pair, and operational
+requirements are reviewed for those environments.

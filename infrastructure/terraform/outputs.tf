@@ -1,10 +1,10 @@
 output "name_prefix" {
-  description = "Canonical prefix for future environment resources."
+  description = "Canonical environment resource prefix."
   value       = local.name_prefix
 }
 
 output "aws_account_id" {
-  description = "AWS account discovered from the configured provider credentials."
+  description = "AWS account selected by the configured credentials."
   value       = data.aws_caller_identity.current.account_id
 }
 
@@ -15,52 +15,57 @@ output "aws_region" {
 
 output "vpc_id" {
   description = "Environment VPC ID."
-  value       = module.vpc.vpc_id
-}
-
-output "public_subnet_ids" {
-  description = "Public subnet IDs for the future ALB."
-  value       = module.vpc.public_subnet_ids
-}
-
-output "private_app_subnet_ids" {
-  description = "Private application subnet IDs for future EKS workloads."
-  value       = module.vpc.private_app_subnet_ids
-}
-
-output "private_data_subnet_ids" {
-  description = "Private data subnet IDs for future managed data services."
-  value       = module.vpc.private_data_subnet_ids
+  value       = module.network.vpc_id
 }
 
 output "vpc_cidr" {
   description = "Environment VPC CIDR."
-  value       = module.vpc.vpc_cidr
+  value       = module.network.vpc_cidr
 }
 
-output "eks_cluster_name" {
-  description = "EKS cluster name."
-  value       = module.eks.cluster_name
+output "public_subnet_ids" {
+  description = "Public subnet IDs used by the ALB."
+  value       = module.network.public_subnet_ids
 }
 
-output "eks_cluster_arn" {
-  description = "EKS cluster ARN."
-  value       = module.eks.cluster_arn
+output "private_app_subnet_ids" {
+  description = "Private application subnet IDs used by K3s."
+  value       = module.network.private_app_subnet_ids
 }
 
-output "eks_cluster_endpoint" {
-  description = "EKS Kubernetes API endpoint."
-  value       = module.eks.cluster_endpoint
+output "private_data_subnet_ids" {
+  description = "Private data subnet IDs used by managed databases and brokers."
+  value       = module.network.private_data_subnet_ids
 }
 
-output "eks_cluster_security_group_id" {
-  description = "EKS control-plane primary security group ID."
-  value       = module.eks.cluster_security_group_id
+output "k3s_server_instance_id" {
+  description = "K3s server/control-plane instance ID."
+  value       = module.k3s.server_instance_id
 }
 
-output "eks_oidc_issuer" {
-  description = "EKS OIDC issuer URL for future workload identity integration."
-  value       = module.eks.oidc_issuer
+output "k3s_worker_instance_id" {
+  description = "K3s worker instance ID."
+  value       = module.k3s.worker_instance_id
+}
+
+output "k3s_server_private_ip" {
+  description = "K3s server private IP."
+  value       = module.k3s.server_private_ip
+}
+
+output "k3s_worker_private_ip" {
+  description = "K3s worker private IP."
+  value       = module.k3s.worker_private_ip
+}
+
+output "k3s_node_security_group_id" {
+  description = "Security group shared by the private K3s nodes."
+  value       = module.k3s.security_group_id
+}
+
+output "k3s_join_token_parameter_name" {
+  description = "Terraform-owned SSM SecureString parameter path; no token value is exposed."
+  value       = module.k3s.join_token_parameter_name
 }
 
 output "rds_endpoint" {
@@ -79,13 +84,8 @@ output "rds_instance_identifier" {
 }
 
 output "rds_security_group_id" {
-  description = "RDS PostgreSQL security group ID."
+  description = "RDS security group ID."
   value       = module.rds.security_group_id
-}
-
-output "rds_subnet_group_name" {
-  description = "Private RDS subnet group name."
-  value       = module.rds.subnet_group_name
 }
 
 output "rds_master_secret_arn" {
@@ -93,33 +93,23 @@ output "rds_master_secret_arn" {
   value       = module.rds.master_secret_arn
 }
 
-output "redis_primary_endpoint" {
-  description = "Private TLS Redis primary endpoint address."
+output "valkey_primary_endpoint" {
+  description = "Private TLS Valkey primary endpoint."
   value       = module.redis.primary_endpoint
 }
 
-output "redis_reader_endpoint" {
-  description = "Private TLS Redis reader endpoint address."
+output "valkey_reader_endpoint" {
+  description = "Private TLS Valkey reader endpoint."
   value       = module.redis.reader_endpoint
 }
 
-output "redis_port" {
-  description = "Redis protocol port."
-  value       = module.redis.port
-}
-
-output "redis_replication_group_id" {
-  description = "ElastiCache replication group ID."
-  value       = module.redis.replication_group_id
-}
-
-output "redis_security_group_id" {
-  description = "ElastiCache security group ID."
+output "valkey_security_group_id" {
+  description = "Valkey security group ID."
   value       = module.redis.security_group_id
 }
 
-output "redis_credentials_secret_arn" {
-  description = "ARN of the Redis credential secret."
+output "valkey_credentials_secret_arn" {
+  description = "ARN of the Valkey credentials secret; no secret value is exposed."
   value       = module.redis.credentials_secret_arn
 }
 
@@ -128,117 +118,67 @@ output "rabbitmq_broker_id" {
   value       = module.rabbitmq.broker_id
 }
 
-output "rabbitmq_broker_arn" {
-  description = "Amazon MQ RabbitMQ broker ARN."
-  value       = module.rabbitmq.broker_arn
-}
-
 output "rabbitmq_amqps_endpoints" {
   description = "Private RabbitMQ AMQPS endpoints without credentials."
   value       = module.rabbitmq.amqps_endpoints
 }
 
 output "rabbitmq_security_group_id" {
-  description = "Amazon MQ RabbitMQ security group ID."
+  description = "RabbitMQ security group ID."
   value       = module.rabbitmq.security_group_id
 }
 
 output "rabbitmq_credentials_secret_arn" {
-  description = "ARN of the RabbitMQ credential secret."
+  description = "ARN of the RabbitMQ credentials secret; no secret value is exposed."
   value       = module.rabbitmq.credentials_secret_arn
 }
 
-output "public_hosted_zone_id" {
-  description = "Existing public Route 53 hosted zone ID used for certificate validation."
-  value       = module.dns.hosted_zone_id
-}
-
-output "public_certificate_arn" {
-  description = "Validated ACM certificate ARN for the future ingress-managed ALB."
-  value       = module.dns.certificate_arn
-}
-
-output "frontend_hostname" {
-  description = "Configured public frontend hostname."
-  value       = module.dns.frontend_hostname
-}
-
-output "api_hostname" {
-  description = "Configured public API gateway hostname."
-  value       = module.dns.api_hostname
-}
-
-output "public_alias_fqdns" {
-  description = "Frontend/API Route 53 aliases created after ALB reconciliation."
-  value       = module.dns.public_alias_fqdns
-}
-
-output "load_balancer_controller_iam_role_arn" {
-  description = "IAM role for a future AWS Load Balancer Controller Pod Identity association."
-  value       = module.alb.controller_iam_role_arn
-}
-
-output "load_balancer_controller_pod_identity_association_arn" {
-  description = "Pod Identity association for kube-system/aws-load-balancer-controller."
-  value       = module.alb.controller_pod_identity_association_arn
-}
-
 output "application_secret_arns" {
-  description = "Environment-specific application secret-container ARNs; no values are exposed."
+  description = "Application secret-container ARNs; no secret values are exposed."
   value       = module.secrets.secret_arns
 }
 
-output "workload_iam_role_arns" {
-  description = "Service-specific EKS Pod Identity IAM role ARNs."
-  value       = module.iam.workload_role_arns
-}
-
-output "workload_service_accounts" {
-  description = "Intended application ServiceAccount names keyed by service."
-  value       = module.iam.service_accounts
-}
-
-output "application_namespace" {
-  description = "Application namespace used by EKS Pod Identity associations."
-  value       = module.iam.namespace
-}
-
-output "pod_identity_association_arns" {
-  description = "AWS-side service Pod Identity association ARNs."
-  value       = module.iam.pod_identity_association_arns
-}
-
-output "ecr_repository_names" {
-  description = "Private ECR repository names keyed by deployable component."
-  value       = module.ecr.repository_names
-}
-
-output "ecr_repository_arns" {
-  description = "Private ECR repository ARNs keyed by deployable component."
-  value       = module.ecr.repository_arns
-}
-
-output "ecr_repository_urls" {
-  description = "Private ECR repository URLs keyed by deployable component."
-  value       = module.ecr.repository_urls
-}
-
 output "application_log_group_name" {
-  description = "Shared CloudWatch application log-group name."
+  description = "CloudWatch application log group name."
   value       = module.observability.application_log_group_name
 }
 
 output "application_log_group_arn" {
-  description = "Shared CloudWatch application log-group ARN."
+  description = "CloudWatch application log group ARN."
   value       = module.observability.application_log_group_arn
 }
 
-output "infrastructure_alarm_topic_arn" {
-  description = "Optional unsubscribed SNS topic ARN for infrastructure alarms."
-  value       = module.observability.alarm_topic_arn
+output "ecr_repository_names" {
+  description = "RoundReady ECR repository names keyed by component."
+  value       = module.ecr.repository_names
 }
 
-output "aws_native_alarm_arns" {
-  description = "Initial reliable AWS-native alarm ARNs."
-  value       = module.observability.alarm_arns
+output "ecr_repository_arns" {
+  description = "RoundReady ECR repository ARNs keyed by component."
+  value       = module.ecr.repository_arns
+}
+
+output "ecr_repository_urls" {
+  description = "RoundReady ECR repository URLs keyed by component."
+  value       = module.ecr.repository_urls
+}
+
+output "alb_dns_name" {
+  description = "Public HTTP ALB DNS name for the RoundReady frontend."
+  value       = module.k3s_alb.alb_dns_name
+}
+
+output "alb_zone_id" {
+  description = "Canonical hosted-zone ID for the frontend ALB."
+  value       = module.k3s_alb.alb_zone_id
+}
+
+output "alb_security_group_id" {
+  description = "Dedicated frontend ALB security group ID."
+  value       = module.k3s_alb.alb_security_group_id
+}
+
+output "alb_target_group_arn" {
+  description = "Frontend NodePort target group ARN."
+  value       = module.k3s_alb.target_group_arn
 }

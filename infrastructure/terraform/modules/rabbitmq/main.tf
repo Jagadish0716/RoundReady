@@ -20,7 +20,7 @@ resource "aws_security_group" "this" {
 resource "aws_vpc_security_group_ingress_rule" "application" {
   security_group_id            = aws_security_group.this.id
   referenced_security_group_id = var.application_security_group_id
-  description                  = "AMQPS from EKS application security boundary"
+  description                  = "AMQPS from the private K3s node security boundary"
   from_port                    = 5671
   to_port                      = 5671
   ip_protocol                  = "tcp"
